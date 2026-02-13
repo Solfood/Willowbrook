@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Undo, Redo, Trash2, MousePointer2 } from 'lucide-react';
+import { Undo, Redo, Trash2, MousePointer2, Crosshair, Menu, Save, Upload, Plus } from 'lucide-react';
 import Sidebar, { getPlantImage } from './Sidebar';
 
 const CELL_SIZE = 15; // px
@@ -16,7 +16,9 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
     const [items, setItems] = useState([]);
     // ghostItem: { type, subType, itemId, width, length, ... } - item currently "held" by cursor
     const [ghostItem, setGhostItem] = useState(null);
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 }); // Raw cursor position
+    const [isTouch, setIsTouch] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const gridRef = useRef(null);
 
     // History Management
@@ -57,44 +59,48 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
             isNew: true, // Marker to know this is a fresh item
             id: Date.now() // Temp ID, will be finalized on placement
         });
+        setIsSidebarOpen(false);
     };
 
     // Global mouse tracker for ghost positioning relative to grid
     const handleMouseMove = (e) => {
         if (!gridRef.current) return;
+        setIsTouch(false);
         const rect = gridRef.current.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-
-        // Snap logic
-        const snappedX = Math.round(x / GRID_SIZE) * GRID_SIZE;
-        const snappedY = Math.round(y / GRID_SIZE) * GRID_SIZE;
-
-        setMousePos({ x: snappedX, y: snappedY });
+        setCursorPos({ x, y });
     };
 
+    const getGhostPosition = () => {
+        if (!ghostItem) return { x: 0, y: 0 };
+        const itemW = ghostItem.type === 'structure' ? ghostItem.width * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
+        const itemH = ghostItem.type === 'structure' ? ghostItem.length * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
+        const yOffset = isTouch ? -60 : 0;
+        const targetX = cursorPos.x - (itemW / 2);
+        const targetY = cursorPos.y - (itemH / 2) + yOffset;
+        return { x: Math.round(targetX / GRID_SIZE) * GRID_SIZE, y: Math.round(targetY / GRID_SIZE) * GRID_SIZE };
+    };
+
+    const ghostPos = getGhostPosition();
+
     const handleGridClick = (e) => {
-        if (!ghostItem) {
-            // If no ghost item, check if we clicked an existing item to Pick Up
-            // Reverse check to hit top items first
-            // Actually, let's do this via specific click handlers on items to be precise?
-            // Or just standard collision detection here.
-            // Let's rely on item click handlers for "Pick Up"
-            return;
-        }
+        if (!ghostItem) return;
 
         // Check bounds
         const gridWidthPx = width * CELLS_PER_FOOT * CELL_SIZE;
         const gridHeightPx = length * CELLS_PER_FOOT * CELL_SIZE;
 
+        const { x, y } = ghostPos;
+
         // Basic bounds check (top/left only, could extend to width/height)
-        if (mousePos.x < 0 || mousePos.y < 0 || mousePos.x >= gridWidthPx || mousePos.y >= gridHeightPx) return;
+        if (x < -CELL_SIZE || y < -CELL_SIZE || x >= gridWidthPx || y >= gridHeightPx) return;
 
         // PLACE THE ITEM
         const newItem = {
             ...ghostItem,
-            x: mousePos.x,
-            y: mousePos.y,
+            x,
+            y,
             id: ghostItem.isNew ? Date.now() : ghostItem.id // Preserve ID if moving, new if new
         };
 
@@ -115,15 +121,9 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
 
     const handleTrashClick = () => {
         if (ghostItem && !ghostItem.isNew) {
-            // If it was an existing item that is now in hand, deleting it effectively updates history
-            // We already removed it from 'items' when we picked it up.
-            // So we just need to push the current 'items' state (which lacks this item) to history?
-            // WAIT. pushToHistory hasn't been called since we picked it up (setItems was called directly).
-            // So we should push the current 'items' (which corresponds to 'deleted') to history.
             pushToHistory(items);
             setGhostItem(null);
         } else {
-            // If it was new, just cancel
             setGhostItem(null);
         }
     };
@@ -195,16 +195,13 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
     // Touch Support
     const handleTouchMove = (e) => {
         if (!gridRef.current) return;
+        setIsTouch(true);
         const touch = e.touches[0];
         const rect = gridRef.current.getBoundingClientRect();
         const x = touch.clientX - rect.left;
         const y = touch.clientY - rect.top;
 
-        // Snap logic
-        const snappedX = Math.round(x / GRID_SIZE) * GRID_SIZE;
-        const snappedY = Math.round(y / GRID_SIZE) * GRID_SIZE;
-
-        setMousePos({ x: snappedX, y: snappedY });
+        setCursorPos({ x, y });
 
         // Prevent scrolling while dragging ghost
         if (ghostItem) e.preventDefault();
@@ -212,9 +209,6 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
 
     const handleTouchEnd = (e) => {
         if (ghostItem) {
-            // We can't use mousePos directly if touch ended? 
-            // Actually state 'mousePos' is updated by touchMove.
-            // Just trigger the grid click logic.
             handleGridClick(e);
         }
     };
@@ -237,24 +231,38 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                 }
             `}</style>
 
-            <header className="bg-white shadow p-4 z-10 flex justify-between items-center px-8 print:hidden">
+            <header className="bg-white shadow p-3 z-40 flex justify-between items-center px-4 md:px-8 print:hidden">
                 <div className="flex items-center gap-2">
-                    <h1 className="text-xl font-bold text-green-800">Willowbrook Planner</h1>
-                    <div className="flex gap-1 ml-4 border-l pl-4 border-gray-300">
+                    <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-gray-600">
+                        <Menu size={24} />
+                    </button>
+                    <h1 className="text-lg md:text-xl font-bold text-green-800 whitespace-nowrap">
+                        <span className="hidden sm:inline">Willowbrook Planner</span>
+                        <span className="sm:hidden">Willowbrook</span>
+                    </h1>
+                    <div className="flex gap-1 ml-2 md:ml-4 border-l pl-2 md:pl-4 border-gray-300">
                         <button onClick={undo} disabled={currentHistoryIndex <= 0} className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 rounded hover:bg-gray-100"><Undo size={20} /></button>
                         <button onClick={redo} disabled={currentHistoryIndex >= history.length - 1} className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 rounded hover:bg-gray-100"><Redo size={20} /></button>
                     </div>
                 </div>
-                <div className={`text-sm font-medium px-4 py-1 rounded-full border ${ghostItem ? 'bg-amber-100 text-amber-800 border-amber-200 animate-pulse' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                    {ghostItem ? (ghostItem.isNew ? 'Click to Place' : 'Click to Move') : `${width}ft x ${length}ft`}
+                <div className={`text-xs md:text-sm font-medium px-3 py-1 rounded-full border truncate max-w-[120px] md:max-w-none ${ghostItem ? 'bg-amber-100 text-amber-800 border-amber-200 animate-pulse' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                    {ghostItem ? (ghostItem.isNew ? 'Place' : 'Move') : `${width}ft x ${length}ft`}
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={handleSave} className="text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1 border border-blue-200 rounded hover:bg-blue-50">Save</button>
-                    <label className="text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer">
-                        Load <input type="file" onChange={handleLoad} accept=".json" className="hidden" />
+                    <button onClick={handleSave} className="text-blue-600 hover:text-blue-800 p-2 md:px-3 md:py-1 border border-blue-200 rounded hover:bg-blue-50" title="Save">
+                        <Save size={18} className="md:hidden" />
+                        <span className="hidden md:inline text-sm font-medium">Save</span>
+                    </button>
+                    <label className="text-blue-600 hover:text-blue-800 p-2 md:px-3 md:py-1 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer" title="Load">
+                        <Upload size={18} className="md:hidden" />
+                        <span className="hidden md:inline text-sm font-medium">Load</span>
+                        <input type="file" onChange={handleLoad} accept=".json" className="hidden" />
                     </label>
-                    <button onClick={onNewGarden} className="text-sm text-red-500 hover:text-red-700 font-medium px-3 py-1 border border-red-200 rounded hover:bg-red-50 ml-2">New Garden</button>
-                    <button onClick={() => window.print()} className="text-sm text-gray-600 hover:text-gray-900 font-medium px-3 py-1 border border-gray-300 rounded hover:bg-gray-100 ml-2">Print</button>
+                    <button onClick={onNewGarden} className="text-red-500 hover:text-red-700 p-2 md:px-3 md:py-1 border border-red-200 rounded hover:bg-red-50 ml-2" title="New Garden">
+                        <Plus size={18} className="md:hidden" />
+                        <span className="hidden md:inline text-sm font-medium">New</span>
+                    </button>
+                    <button onClick={() => window.print()} className="hidden md:block text-sm text-gray-600 hover:text-gray-900 font-medium px-3 py-1 border border-gray-300 rounded hover:bg-gray-100 ml-2">Print</button>
                 </div>
             </header>
 
@@ -263,16 +271,21 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                 onTouchMove={handleTouchMove}
             >
                 {/* Pass items to Sidebar for Shopping List */}
-                <Sidebar onItemSelect={handleSidebarSelect} items={items} />
+                <Sidebar
+                    onItemSelect={handleSidebarSelect}
+                    items={items}
+                    isOpen={isSidebarOpen}
+                    onClose={() => setIsSidebarOpen(false)}
+                />
 
-                <main className="flex-1 overflow-auto bg-stone-100 p-8 flex shadow-inner relative cursor-crosshair">
+                <main className="flex-1 overflow-auto bg-stone-100 p-4 md:p-8 flex shadow-inner relative cursor-crosshair">
                     <div className="m-auto relative group">
                         {/* Main Grid Area */}
                         <div
                             ref={gridRef}
                             onClick={handleGridClick}
                             onTouchEnd={handleTouchEnd}
-                            className="bg-white shadow-2xl border border-gray-200 relative overflow-hidden print:border-4 print:border-black"
+                            className="bg-white shadow-2xl border border-gray-200 relative overflow-hidden print:border-4 print:border-black touch-none"
                             style={{
                                 width: gridWidthPx,
                                 height: gridHeightPx,
@@ -302,7 +315,7 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                             {/* Ghost Item */}
                             {ghostItem && (
                                 <div
-                                    style={{ position: 'absolute', left: mousePos.x, top: mousePos.y, opacity: 0.6, pointerEvents: 'none', zIndex: 50 }}
+                                    style={{ position: 'absolute', left: ghostPos.x, top: ghostPos.y, opacity: 0.6, pointerEvents: 'none', zIndex: 50 }}
                                 >
                                     {/* Spacing Guide Ring (1sq ft = 2x2 cells = 30px) */}
                                     {ghostItem.type === 'plant' && (
