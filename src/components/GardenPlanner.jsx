@@ -53,10 +53,14 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     const { items, history, currentHistoryIndex } = plannerState;
 
     const [selectedTool, setSelectedTool] = useState(null);
-    const [mode, setMode] = useState('pan'); // pan | place
+    const [mode, setMode] = useState('pan'); // pan | place | move
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
     const [cursorWorld, setCursorWorld] = useState({ x: worldWidth / 2, y: worldHeight / 2 });
+    const [isMobile, setIsMobile] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.matchMedia('(max-width: 767px)').matches;
+    });
 
     const viewportRef = useRef(null);
     const mouseDragRef = useRef({
@@ -76,7 +80,8 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         velocity: { x: 0, y: 0 },
         momentumFrame: null,
     });
-    const longPressRef = useRef({ timer: null });
+
+    const activeMode = isMobile && mode === 'move' ? 'pan' : mode;
 
     const commitItems = useCallback((nextItems) => {
         dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: nextItems });
@@ -86,12 +91,6 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         setSelectedTool(null);
     }, []);
 
-    const clearLongPress = useCallback(() => {
-        if (longPressRef.current.timer) {
-            clearTimeout(longPressRef.current.timer);
-            longPressRef.current.timer = null;
-        }
-    }, []);
 
     const toWorld = useCallback((clientX, clientY, activeCamera = camera) => {
         if (!viewportRef.current) return { x: 0, y: 0 };
@@ -155,6 +154,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     }, [toWorld]);
 
     const pickUpItem = useCallback((item) => {
+        if (isMobile) return;
         dispatch({ type: plannerActionTypes.PICKUP_ITEM, payload: item.id });
         setSelectedTool({
             ...item,
@@ -162,8 +162,8 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             isNew: false,
             id: item.id,
         });
-        setMode('place');
-    }, []);
+        setMode('move');
+    }, [isMobile]);
 
     const toolPixelSize = useMemo(() => {
         if (!selectedTool) return { w: CELL_SIZE, h: CELL_SIZE };
@@ -350,12 +350,20 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         return () => window.removeEventListener('resize', onResize);
     }, [fitToView]);
 
+    useEffect(() => {
+        const media = window.matchMedia('(max-width: 767px)');
+        const handleChange = () => setIsMobile(media.matches);
+        handleChange();
+        media.addEventListener('change', handleChange);
+        return () => media.removeEventListener('change', handleChange);
+    }, []);
+
     const onMouseDown = (e) => {
         if (e.button !== 0) return;
         stopMomentum();
         setCursorFromClient(e.clientX, e.clientY);
 
-        const shouldPan = mode === 'pan' || !selectedTool;
+        const shouldPan = activeMode === 'pan' || !selectedTool;
         if (shouldPan) {
             mouseDragRef.current = {
                 active: true,
@@ -394,7 +402,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         setCursorFromClient(e.clientX, e.clientY);
 
-        if (!wasDrag && mode === 'place' && selectedTool) {
+        if (!wasDrag && activeMode !== 'pan' && selectedTool) {
             const world = toWorld(e.clientX, e.clientY);
             placeSelectedAt(world);
         }
@@ -421,7 +429,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             const touch = e.touches[0];
             setCursorFromClient(touch.clientX, touch.clientY);
 
-            const shouldPan = mode === 'pan' || !selectedTool;
+            const shouldPan = activeMode === 'pan' || !selectedTool;
             touchRef.current = {
                 mode: shouldPan ? 'pan' : 'place',
                 moved: false,
@@ -504,7 +512,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     };
 
     const onTouchEnd = (e) => {
-        if (touchRef.current.mode === 'place' && !touchRef.current.moved && selectedTool && e.changedTouches.length > 0) {
+        if (touchRef.current.mode === 'place' && activeMode !== 'pan' && !touchRef.current.moved && selectedTool && e.changedTouches.length > 0) {
             const touch = e.changedTouches[0];
             const world = toWorld(touch.clientX, touch.clientY);
             placeSelectedAt(world);
@@ -557,10 +565,6 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         return () => stopMomentum();
     }, [stopMomentum]);
 
-    useEffect(() => {
-        return () => clearLongPress();
-    }, [clearLongPress]);
-
     const orderedItems = useMemo(() => {
         return [...items].sort((a, b) => {
             if (a.type === b.type) return 0;
@@ -592,8 +596,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 </div>
 
                 <div className="hidden md:flex items-center gap-2">
-                    <button onClick={() => setMode('pan')} className={`px-3 py-1 text-sm rounded border ${mode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-gray-700 border-gray-300'}`}><Hand size={14} className="inline mr-1" />Pan</button>
-                    <button onClick={() => setMode('place')} className={`px-3 py-1 text-sm rounded border ${mode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'}`}><Grip size={14} className="inline mr-1" />Place</button>
+                    <button onClick={() => setMode('pan')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-gray-700 border-gray-300'}`}><Hand size={14} className="inline mr-1" />Pan</button>
+                    <button onClick={() => setMode('place')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'}`}><Grip size={14} className="inline mr-1" />Place</button>
+                    {!isMobile && (
+                        <button onClick={() => setMode('move')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'move' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300'}`}>Move</button>
+                    )}
                     <button onClick={() => zoomFromViewportCenter(camera.scale * 0.9)} className="p-2 border rounded border-gray-300 text-gray-700 hover:bg-gray-100" title="Zoom out"><Minus size={16} /></button>
                     <span className="text-xs w-14 text-center text-gray-600">{Math.round(camera.scale * 100)}%</span>
                     <button onClick={() => zoomFromViewportCenter(camera.scale * 1.1)} className="p-2 border rounded border-gray-300 text-gray-700 hover:bg-gray-100" title="Zoom in"><Plus size={16} /></button>
@@ -634,9 +641,15 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 />
 
                 <main className="flex-1 overflow-hidden bg-stone-100 p-2 md:p-6 flex shadow-inner relative">
+                    {isMobile && (
+                        <div className="absolute top-2 left-2 right-2 z-20 text-[11px] md:hidden bg-blue-50 border border-blue-200 text-blue-800 rounded px-2 py-1">
+                            Mobile quick-edit mode: add/place items and review plan. Desktop is recommended for full precision editing.
+                        </div>
+                    )}
                     <div
                         ref={viewportRef}
                         className="relative w-full h-full touch-none rounded-lg"
+                        onContextMenu={(e) => e.preventDefault()}
                         onMouseDown={onMouseDown}
                         onMouseMove={onMouseMove}
                         onMouseUp={onMouseUp}
@@ -645,6 +658,12 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         onTouchMove={onTouchMove}
                         onTouchEnd={onTouchEnd}
                         onWheel={onWheel}
+                        style={{
+                            WebkitTouchCallout: 'none',
+                            WebkitUserSelect: 'none',
+                            userSelect: 'none',
+                            WebkitTapHighlightColor: 'transparent',
+                        }}
                     >
                         <div
                             className="absolute left-0 top-0"
@@ -670,34 +689,28 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                     <div
                                         key={item.id}
                                         className={`group/item ${selectedTool ? 'pointer-events-none' : ''}`}
-                                        onDoubleClick={(e) => {
+                                        onMouseDown={(e) => {
                                             e.stopPropagation();
-                                            if (mode === 'place' && !selectedTool) {
+                                            if (!isMobile && activeMode === 'move' && !selectedTool) {
                                                 pickUpItem(item);
                                             }
                                         }}
                                         onTouchStart={(e) => {
                                             e.stopPropagation();
-                                            if (mode === 'place' && !selectedTool) {
-                                                clearLongPress();
-                                                longPressRef.current.timer = setTimeout(() => {
-                                                    pickUpItem(item);
-                                                    longPressRef.current.timer = null;
-                                                }, 350);
+                                            if (!isMobile && activeMode === 'move' && !selectedTool) {
+                                                pickUpItem(item);
                                             }
                                         }}
-                                        onTouchEnd={clearLongPress}
-                                        onTouchCancel={clearLongPress}
                                         style={{
                                             position: 'absolute',
                                             left: item.x,
                                             top: item.y,
                                             zIndex: item.type === 'plant' ? 10 : 1,
-                                            cursor: mode === 'place' ? 'grab' : 'default',
+                                            cursor: activeMode === 'move' ? 'grab' : 'default',
                                         }}
                                     >
                                         <RenderItemContent item={item} />
-                                        {!selectedTool && mode === 'place' && (
+                                        {!selectedTool && activeMode === 'move' && (
                                             <div className="absolute inset-0 border-2 border-blue-400 opacity-0 group-hover/item:opacity-100 rounded pointer-events-none transition-opacity print:hidden" />
                                         )}
                                     </div>
@@ -732,7 +745,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         </div>
 
                         <div className="absolute left-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
-                            {`Mode: ${mode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%  |  Move: dbl-click/long-press`}
+                            {`Mode: ${activeMode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%${isMobile ? '  |  Quick Edit' : ''}`}
                         </div>
 
                         <div className="absolute right-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
@@ -755,8 +768,8 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 <button onClick={() => setIsSidebarOpen(true)} className="p-3 rounded border border-gray-300 text-gray-700">Catalog</button>
                 <button onClick={handleUndo} disabled={currentHistoryIndex <= 0} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Undo size={18} /></button>
                 <button onClick={handleRedo} disabled={currentHistoryIndex >= history.length - 1} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Redo size={18} /></button>
-                <button onClick={() => setMode('pan')} className={`px-3 py-3 rounded border text-sm ${mode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-gray-300 text-gray-700'}`}><Hand size={14} className="inline mr-1" />Pan</button>
-                <button onClick={() => setMode('place')} className={`px-3 py-3 rounded border text-sm ${mode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white border-gray-300 text-gray-700'}`}><Grip size={14} className="inline mr-1" />Place</button>
+                <button onClick={() => setMode('pan')} className={`px-3 py-3 rounded border text-sm ${activeMode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-gray-300 text-gray-700'}`}><Hand size={14} className="inline mr-1" />Pan</button>
+                <button onClick={() => setMode('place')} className={`px-3 py-3 rounded border text-sm ${activeMode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white border-gray-300 text-gray-700'}`}><Grip size={14} className="inline mr-1" />Place</button>
                 <button onClick={fitToView} className="p-3 rounded border border-gray-300 text-gray-700"><LocateFixed size={18} /></button>
             </div>
         </div>
