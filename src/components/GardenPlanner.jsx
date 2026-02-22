@@ -26,6 +26,21 @@ const MIN_SCALE = 0.35;
 const MAX_SCALE = 3;
 
 const DIRT_PATTERN = `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%235D4037' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`;
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const PLANTING_WINDOWS = {
+    tomato: { start: 3, end: 5 },
+    pepper: { start: 3, end: 5 },
+    corn: { start: 3, end: 5 },
+    bean: { start: 4, end: 6 },
+    carrot: { start: 2, end: 8 },
+    lettuce: { start: 2, end: 5 },
+    onion: { start: 1, end: 4 },
+    spinach: { start: 1, end: 4 },
+    basil: { start: 4, end: 6 },
+    parsley: { start: 3, end: 6 },
+    marigold: { start: 3, end: 6 },
+    sunflower: { start: 3, end: 6 },
+};
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -53,6 +68,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
     const [selectedTool, setSelectedTool] = useState(null);
     const [selectedItemId, setSelectedItemId] = useState(null);
+    const [activeSection, setActiveSection] = useState('plan'); // plan | plant-list | parts-list | shopping | notes
     const [mode, setMode] = useState('pan'); // pan | place | move
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
     const [cursorWorld, setCursorWorld] = useState({ x: worldWidth / 2, y: worldHeight / 2 });
@@ -65,6 +81,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     });
     const [safeMoveMode, setSafeMoveMode] = useState(true);
     const [snapFeet, setSnapFeet] = useState(0.5);
+    const [timelineMonth, setTimelineMonth] = useState(new Date().getMonth());
+    const [notesText, setNotesText] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        return window.localStorage.getItem('willowbrook_notes') || '';
+    });
     const [isDesktopReady, setIsDesktopReady] = useState(() => {
         if (typeof window === 'undefined') return true;
         return window.innerWidth >= 1100 && !window.matchMedia('(pointer: coarse)').matches;
@@ -239,10 +260,17 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     const handleTrash = useCallback(() => {
         if (selectedTool && !selectedTool.isNew) {
             commitItems(items);
+            setSelectedItemId(null);
+            clearSelection();
+            return;
+        }
+        if (selectedItemId) {
+            commitItems(items.filter((item) => item.id !== selectedItemId));
+            setSelectedItemId(null);
+            return;
         }
         clearSelection();
-        setSelectedItemId(null);
-    }, [selectedTool, commitItems, items, clearSelection]);
+    }, [selectedTool, selectedItemId, commitItems, items, clearSelection]);
 
     const selectedPlacedItem = useMemo(
         () => items.find((item) => item.id === selectedItemId) || null,
@@ -256,6 +284,57 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         });
         commitItems(nextItems);
     }, [items, commitItems]);
+
+    const handleEnterMoveMode = useCallback(() => {
+        setMode('move');
+        if (selectedPlacedItem && !selectedTool) {
+            pickUpItem(selectedPlacedItem);
+        }
+    }, [selectedPlacedItem, selectedTool, pickUpItem]);
+
+    const plantSummary = useMemo(() => {
+        const byName = {};
+        items
+            .filter((item) => item.type === 'plant')
+            .forEach((item) => {
+                const key = item.name;
+                if (!byName[key]) byName[key] = { id: item.itemId || item.id, name: item.name, count: 0 };
+                byName[key].count += 1;
+            });
+        return Object.values(byName).sort((a, b) => a.name.localeCompare(b.name));
+    }, [items]);
+
+    const partsSummary = useMemo(() => {
+        const byName = {};
+        items
+            .filter((item) => item.type === 'structure')
+            .forEach((item) => {
+                const key = `${item.name}:${item.width}x${item.length}`;
+                if (!byName[key]) byName[key] = { name: item.name, width: item.width, length: item.length, count: 0 };
+                byName[key].count += 1;
+            });
+        return Object.values(byName).sort((a, b) => a.name.localeCompare(b.name));
+    }, [items]);
+
+    const shoppingSummary = useMemo(() => {
+        const list = [
+            ...plantSummary.map((item) => ({ label: `${item.name} seed/starts`, qty: item.count })),
+            ...partsSummary.map((item) => ({ label: `${item.name} (${item.width}'x${item.length}')`, qty: item.count })),
+        ];
+        return list.sort((a, b) => a.label.localeCompare(b.label));
+    }, [plantSummary, partsSummary]);
+
+    const timelineRows = useMemo(() => {
+        return plantSummary.map((item) => {
+            const window = PLANTING_WINDOWS[item.id] || null;
+            const inWindow = window ? timelineMonth >= window.start && timelineMonth <= window.end : false;
+            return {
+                ...item,
+                window,
+                inWindow,
+            };
+        });
+    }, [plantSummary, timelineMonth]);
 
     const handleSave = useCallback(async () => {
         const data = { schemaVersion: 1, width, length, items };
@@ -351,6 +430,19 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 return;
             }
 
+            if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedTool || selectedItemId)) {
+                const target = e.target;
+                if (target instanceof HTMLElement) {
+                    const tag = target.tagName.toLowerCase();
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
+                        return;
+                    }
+                }
+                e.preventDefault();
+                handleTrash();
+                return;
+            }
+
             if (!selectedPlacedItem || selectedTool || mode === 'pan') {
                 return;
             }
@@ -386,7 +478,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedTool, selectedPlacedItem, mode, snapPx, worldWidth, worldHeight, applyItemPatch, clearSelection, handleUndo, handleRedo]);
+    }, [selectedTool, selectedItemId, selectedPlacedItem, mode, snapPx, worldWidth, worldHeight, applyItemPatch, clearSelection, handleUndo, handleRedo, handleTrash]);
 
     useEffect(() => {
         fitToView();
@@ -399,6 +491,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
     }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem('willowbrook_notes', notesText);
+    }, [notesText]);
 
     const onMouseDown = (e) => {
         if (e.button !== 0) return;
@@ -502,11 +599,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
             <header className="bg-white border-b border-gray-300 print:hidden">
                 <div className="h-12 px-3 flex items-center gap-3 text-sm">
-                    <div className="font-semibold text-gray-800">Plan</div>
-                    <div className="text-gray-500">Plant List</div>
-                    <div className="text-gray-500">Parts List</div>
-                    <div className="text-gray-500">Shopping</div>
-                    <div className="text-gray-500">Notes</div>
+                    <button onClick={() => setActiveSection('plan')} className={activeSection === 'plan' ? 'font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'}>Plan</button>
+                    <button onClick={() => setActiveSection('plant-list')} className={activeSection === 'plant-list' ? 'font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'}>Plant List</button>
+                    <button onClick={() => setActiveSection('parts-list')} className={activeSection === 'parts-list' ? 'font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'}>Parts List</button>
+                    <button onClick={() => setActiveSection('shopping')} className={activeSection === 'shopping' ? 'font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'}>Shopping</button>
+                    <button onClick={() => setActiveSection('notes')} className={activeSection === 'notes' ? 'font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'}>Notes</button>
                     <div className="ml-auto flex items-center gap-2">
                         <button onClick={handleSave} className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100 inline-flex items-center gap-1"><Save size={14} />Save</button>
                         <label className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100 cursor-pointer inline-flex items-center gap-1">
@@ -522,7 +619,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     <span className="w-px h-6 bg-gray-300 mx-1" />
                     <button onClick={() => setMode('pan')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-gray-700 border-gray-300'}`}><Hand size={14} className="inline mr-1" />Pan</button>
                     <button onClick={() => setMode('place')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'}`}><Grip size={14} className="inline mr-1" />Place</button>
-                    <button onClick={() => setMode('move')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'move' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300'}`}>Move</button>
+                    <button onClick={handleEnterMoveMode} className={`px-3 py-1.5 text-sm rounded border ${mode === 'move' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300'}`}>Move</button>
                     <span className="w-px h-6 bg-gray-300 mx-1" />
                     <label className="text-xs text-gray-600">Snap</label>
                     <select
@@ -534,6 +631,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         <option value={0.5}>0.5 ft</option>
                         <option value={1}>1 ft</option>
                     </select>
+                    <span className="text-[11px] text-gray-500">Aligns placement and arrow-key nudges to this grid size.</span>
                     <span className="w-px h-6 bg-gray-300 mx-1" />
                     <button onClick={() => zoomFromViewportCenter(camera.scale * 0.9)} className="p-2 border rounded border-gray-300"><Minus size={16} /></button>
                     <span className="text-xs w-14 text-center text-gray-600">{Math.round(camera.scale * 100)}%</span>
@@ -549,14 +647,101 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
             <div className="flex flex-1 min-h-0">
                 <div className="left-rail w-12 bg-green-700 border-r border-green-900 text-white flex flex-col items-center py-3 gap-3 print:hidden">
-                    <button className="p-2 rounded bg-green-800"><Sprout size={16} /></button>
-                    <button className="p-2 rounded hover:bg-green-800"><Wrench size={16} /></button>
-                    <button className="p-2 rounded hover:bg-green-800"><BookOpen size={16} /></button>
+                    <button
+                        onClick={() => {
+                            setActiveSection('plan');
+                            setRightTab('learn');
+                        }}
+                        className={`p-2 rounded ${rightTab === 'learn' ? 'bg-green-800' : 'hover:bg-green-800'}`}
+                        title="Learn"
+                    >
+                        <Sprout size={16} />
+                    </button>
+                    <button
+                        onClick={() => {
+                            setActiveSection('plan');
+                            setRightTab('layers');
+                        }}
+                        className={`p-2 rounded ${rightTab === 'layers' ? 'bg-green-800' : 'hover:bg-green-800'}`}
+                        title="Layers"
+                    >
+                        <Wrench size={16} />
+                    </button>
+                    <button
+                        onClick={() => {
+                            setActiveSection('plan');
+                            setRightTab('timeline');
+                        }}
+                        className={`p-2 rounded ${rightTab === 'timeline' ? 'bg-green-800' : 'hover:bg-green-800'}`}
+                        title="Timeline"
+                    >
+                        <BookOpen size={16} />
+                    </button>
                 </div>
 
-                <Sidebar onItemSelect={handleSidebarSelect} items={items} />
+                {activeSection === 'plan' ? (
+                    <Sidebar onItemSelect={handleSidebarSelect} items={items} />
+                ) : (
+                    <aside className="w-[320px] bg-white border-r border-gray-200 shadow-sm flex flex-col print:hidden">
+                        <div className="px-4 py-3 border-b border-gray-200">
+                            <h2 className="text-sm font-semibold text-gray-800">Overview</h2>
+                            <p className="text-xs text-gray-500 mt-1">Project summaries by section.</p>
+                        </div>
+                        <div className="p-4 text-sm text-gray-700 space-y-2">
+                            <div>Plants: <strong>{items.filter((item) => item.type === 'plant').length}</strong></div>
+                            <div>Structures: <strong>{items.filter((item) => item.type === 'structure').length}</strong></div>
+                            <div>Total items: <strong>{items.length}</strong></div>
+                        </div>
+                    </aside>
+                )}
 
                 <main className="flex-1 overflow-hidden bg-[#e8e8e8] p-4 flex relative border-r border-gray-300">
+                    {activeSection !== 'plan' ? (
+                        <div className="w-full h-full rounded border border-gray-300 bg-white p-4 overflow-auto">
+                            {activeSection === 'plant-list' && (
+                                <SimpleTable
+                                    title="Plant List"
+                                    columns={['Plant', 'Count']}
+                                    rows={plantSummary.map((item) => [
+                                        <span key={`${item.name}-label`} className="inline-flex items-center gap-2">
+                                            <img src={getPlantImage(item.id)} alt="" className="w-5 h-5 object-contain" />
+                                            {item.name}
+                                        </span>,
+                                        item.count,
+                                    ])}
+                                    emptyMessage="No plants in the current plan."
+                                />
+                            )}
+                            {activeSection === 'parts-list' && (
+                                <SimpleTable
+                                    title="Parts List"
+                                    columns={['Part', 'Size', 'Count']}
+                                    rows={partsSummary.map((item) => [item.name, `${item.width}' x ${item.length}'`, item.count])}
+                                    emptyMessage="No structures in the current plan."
+                                />
+                            )}
+                            {activeSection === 'shopping' && (
+                                <SimpleTable
+                                    title="Shopping"
+                                    columns={['Item', 'Qty']}
+                                    rows={shoppingSummary.map((item) => [item.label, item.qty])}
+                                    emptyMessage="Shopping list is empty."
+                                />
+                            )}
+                            {activeSection === 'notes' && (
+                                <div>
+                                    <h3 className="font-semibold text-gray-800 mb-2">Notes</h3>
+                                    <p className="text-xs text-gray-600 mb-3">Saved locally in this browser.</p>
+                                    <textarea
+                                        value={notesText}
+                                        onChange={(e) => setNotesText(e.target.value)}
+                                        className="w-full h-[420px] border border-gray-300 rounded p-3 text-sm"
+                                        placeholder="Add project notes, reminders, and tasks..."
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    ) : (
                     <div
                         ref={viewportRef}
                         className="relative w-full h-full rounded border border-gray-300 bg-[#d9d9d9]"
@@ -637,6 +822,10 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                         }}
                                         onClick={(e) => {
                                             e.stopPropagation();
+                                            if (mode === 'move' && !selectedTool && !safeMoveMode) {
+                                                pickUpItem(item);
+                                                return;
+                                            }
                                             setSelectedItemId(item.id);
                                         }}
                                         onDoubleClick={(e) => {
@@ -696,11 +885,12 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                             {`${(cursorWorld.x / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft, ${(cursorWorld.y / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft`}
                         </div>
                     </div>
+                    )}
 
                     <button
                         onClick={handleTrash}
-                        className={`floating-trash fixed bottom-8 right-[320px] z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border-2 cursor-pointer print:hidden ${selectedTool ? 'bg-red-50 border-red-400 text-red-500 scale-110 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-400'}`}
-                        title="Cancel / Trash"
+                        className={`floating-trash fixed bottom-8 right-[320px] z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border-2 cursor-pointer print:hidden ${(selectedTool || selectedItemId) ? 'bg-red-50 border-red-400 text-red-500 scale-110 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-400'}`}
+                        title={selectedTool || selectedItemId ? 'Delete selected (Del/Backspace)' : 'Select an item to delete'}
                     >
                         <Trash2 size={28} />
                     </button>
@@ -884,9 +1074,52 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     {rightTab === 'timeline' && (
                         <>
                             <h3 className="font-semibold text-gray-800 mb-2">Timeline</h3>
-                            <p className="text-xs text-gray-600 mb-3">Planning timeline placeholder for future crop scheduling features.</p>
-                            <HelpCard title="Current View" body="All Months" />
-                            <HelpCard title="Next Step" body="Timeline planning can be added as a separate feature module." />
+                            <p className="text-xs text-gray-600 mb-3">Compare your current plants against suggested planting windows.</p>
+                            <label className="text-xs text-gray-600 block mb-2">
+                                Month
+                                <select
+                                    value={timelineMonth}
+                                    onChange={(e) => setTimelineMonth(Number(e.target.value))}
+                                    className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                                >
+                                    {MONTH_LABELS.map((label, idx) => (
+                                        <option key={label} value={idx}>{label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+                                {timelineRows.length === 0 ? (
+                                    <p className="text-xs text-gray-500">Add plants to see timeline guidance.</p>
+                                ) : timelineRows.map((row) => (
+                                    <div key={row.name} className="border border-gray-200 rounded p-2 bg-gray-50">
+                                        <div className="flex justify-between text-xs mb-1">
+                                            <span className="font-medium text-gray-800">{row.name}</span>
+                                            <span className="text-gray-600">x{row.count}</span>
+                                        </div>
+                                        {row.window ? (
+                                            <div>
+                                                <div className={`text-[11px] mb-1 ${row.inWindow ? 'text-green-700' : 'text-amber-700'}`}>
+                                                    Suggested: {MONTH_LABELS[row.window.start]}-{MONTH_LABELS[row.window.end]} {row.inWindow ? '(in window)' : '(outside window)'}
+                                                </div>
+                                                <div className="grid grid-cols-12 gap-0.5">
+                                                    {MONTH_LABELS.map((month, idx) => {
+                                                        const inSuggested = idx >= row.window.start && idx <= row.window.end;
+                                                        const isActive = idx === timelineMonth;
+                                                        return (
+                                                            <div
+                                                                key={`${row.name}-${month}`}
+                                                                className={`h-2 rounded-sm ${inSuggested ? 'bg-green-300' : 'bg-gray-200'} ${isActive ? 'ring-1 ring-gray-700' : ''}`}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-[11px] text-gray-500">No planting window defined yet.</div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </>
                     )}
                 </aside>
@@ -900,6 +1133,42 @@ function HelpCard({ title, body }) {
         <div className="mb-3 border border-gray-200 rounded p-3 bg-gray-50">
             <h4 className="text-sm font-semibold text-gray-800 mb-1">{title}</h4>
             <p className="text-xs text-gray-600">{body}</p>
+        </div>
+    );
+}
+
+function SimpleTable({ title, columns, rows, emptyMessage }) {
+    return (
+        <div>
+            <h3 className="font-semibold text-gray-800 mb-3">{title}</h3>
+            {rows.length === 0 ? (
+                <p className="text-sm text-gray-500">{emptyMessage}</p>
+            ) : (
+                <div className="border border-gray-200 rounded overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                {columns.map((column) => (
+                                    <th key={column} className="text-left px-3 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                        {column}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((row, rowIndex) => (
+                                <tr key={`row-${rowIndex}`} className="border-t border-gray-100">
+                                    {row.map((cell, cellIndex) => (
+                                        <td key={`row-${rowIndex}-cell-${cellIndex}`} className="px-3 py-2 text-gray-700">
+                                            {cell}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }
