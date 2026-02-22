@@ -1,52 +1,56 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Undo, Redo, Trash2, MousePointer2, Crosshair, Menu, Save, Upload, Plus } from 'lucide-react';
-import Sidebar, { getPlantImage } from './Sidebar';
+import React, { useState, useCallback, useRef, useEffect, useReducer } from 'react';
+import { Undo, Redo, Trash2, Menu, Save, Upload, Plus, LocateFixed } from 'lucide-react';
+import Sidebar from './Sidebar';
+import { createPlannerInitialState, plannerActionTypes, plannerReducer } from '../features/planner/planReducer';
+import { parseGardenPlanText } from '../features/planner/planSchema';
+import { getPlantImage } from '../features/catalog/catalog';
 
 const CELL_SIZE = 15; // px
 const CELLS_PER_FOOT = 2; // 0.5 ft per cell
 const GRID_SIZE = CELL_SIZE; // Grid snap size
+const MIN_SCALE = 0.35;
+const MAX_SCALE = 3;
 
 // Dirt pattern
 const DIRT_PATTERN = `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%235D4037' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`;
 
-// Structure Internal Grid Pattern (0.5ft lines)
-const STRUCTURE_GRID_PATTERN = `linear-gradient(to right, rgba(0,0,0,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px)`;
+export default function GardenPlanner({ width, length, initialItems = [], onNewGarden, onLoadGarden }) {
+    const gridWidthPx = width * CELLS_PER_FOOT * CELL_SIZE;
+    const gridHeightPx = length * CELLS_PER_FOOT * CELL_SIZE;
 
-export default function GardenPlanner({ width, length, onNewGarden }) {
-    const [items, setItems] = useState([]);
+    const [plannerState, dispatch] = useReducer(plannerReducer, initialItems, createPlannerInitialState);
+    const { items, history, currentHistoryIndex } = plannerState;
     // ghostItem: { type, subType, itemId, width, length, ... } - item currently "held" by cursor
     const [ghostItem, setGhostItem] = useState(null);
-    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 }); // Raw cursor position
+    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 }); // Grid-space cursor position
     const [isTouch, setIsTouch] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
+
     const gridRef = useRef(null);
+    const viewportRef = useRef(null);
+    const touchStateRef = useRef({
+        mode: null,
+        lastPan: null,
+        lastDistance: 0,
+        lastMidpoint: null,
+    });
 
     // History Management
-    const [history, setHistory] = useState([[]]);
-    const [currentHistoryIndex, setCurrentHistoryIndex] = useState(0);
-
     const pushToHistory = useCallback((newItems) => {
-        const newHistory = history.slice(0, currentHistoryIndex + 1);
-        newHistory.push(newItems);
-        setHistory(newHistory);
-        setCurrentHistoryIndex(newHistory.length - 1);
-        setItems(newItems);
-    }, [history, currentHistoryIndex]);
+        dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: newItems });
+    }, []);
 
     const undo = () => {
         if (currentHistoryIndex > 0) {
-            const prevIndex = currentHistoryIndex - 1;
-            setCurrentHistoryIndex(prevIndex);
-            setItems(history[prevIndex]);
+            dispatch({ type: plannerActionTypes.UNDO });
             setGhostItem(null); // Cancel any active action
         }
     };
 
     const redo = () => {
         if (currentHistoryIndex < history.length - 1) {
-            const nextIndex = currentHistoryIndex + 1;
-            setCurrentHistoryIndex(nextIndex);
-            setItems(history[nextIndex]);
+            dispatch({ type: plannerActionTypes.REDO });
             setGhostItem(null);
         }
     };
@@ -62,21 +66,68 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
         setIsSidebarOpen(false);
     };
 
+    const clampScale = useCallback((value) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)), []);
+
+    const fitToView = useCallback(() => {
+        if (!viewportRef.current) return;
+
+        const rect = viewportRef.current.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+
+        const horizontalPadding = 32;
+        const verticalPadding = 32;
+        const targetScale = clampScale(
+            Math.min(
+                (rect.width - horizontalPadding) / gridWidthPx,
+                (rect.height - verticalPadding) / gridHeightPx
+            )
+        );
+
+        setCamera({
+            scale: targetScale,
+            x: (rect.width - (gridWidthPx * targetScale)) / 2,
+            y: (rect.height - (gridHeightPx * targetScale)) / 2,
+        });
+    }, [clampScale, gridWidthPx, gridHeightPx]);
+
+    const clientToGrid = useCallback((clientX, clientY, activeCamera = camera) => {
+        if (!viewportRef.current) return { x: 0, y: 0 };
+        const rect = viewportRef.current.getBoundingClientRect();
+        return {
+            x: (clientX - rect.left - activeCamera.x) / activeCamera.scale,
+            y: (clientY - rect.top - activeCamera.y) / activeCamera.scale,
+        };
+    }, [camera]);
+
+    const zoomAtPoint = useCallback((nextScale, clientX, clientY) => {
+        setCamera(prev => {
+            const scale = clampScale(nextScale);
+            const world = clientToGrid(clientX, clientY, prev);
+            if (!viewportRef.current) return prev;
+            const rect = viewportRef.current.getBoundingClientRect();
+            const localX = clientX - rect.left;
+            const localY = clientY - rect.top;
+
+            return {
+                scale,
+                x: localX - (world.x * scale),
+                y: localY - (world.y * scale),
+            };
+        });
+    }, [clampScale, clientToGrid]);
+
     // Global mouse tracker for ghost positioning relative to grid
     const handleMouseMove = (e) => {
-        if (!gridRef.current) return;
+        if (!viewportRef.current) return;
         setIsTouch(false);
-        const rect = gridRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        setCursorPos({ x, y });
+        setCursorPos(clientToGrid(e.clientX, e.clientY));
     };
 
     const getGhostPosition = () => {
         if (!ghostItem) return { x: 0, y: 0 };
         const itemW = ghostItem.type === 'structure' ? ghostItem.width * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
         const itemH = ghostItem.type === 'structure' ? ghostItem.length * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
-        const yOffset = isTouch ? -60 : 0;
+        const yOffset = isTouch ? -(60 / camera.scale) : 0;
         const targetX = cursorPos.x - (itemW / 2);
         const targetY = cursorPos.y - (itemH / 2) + yOffset;
         return { x: Math.round(targetX / GRID_SIZE) * GRID_SIZE, y: Math.round(targetY / GRID_SIZE) * GRID_SIZE };
@@ -84,12 +135,8 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
 
     const ghostPos = getGhostPosition();
 
-    const handleGridClick = (e) => {
+    const handleGridClick = () => {
         if (!ghostItem) return;
-
-        // Check bounds
-        const gridWidthPx = width * CELLS_PER_FOOT * CELL_SIZE;
-        const gridHeightPx = length * CELLS_PER_FOOT * CELL_SIZE;
 
         const { x, y } = ghostPos;
 
@@ -114,8 +161,7 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
         if (ghostItem) return; // If holding something, maybe we want to swap? For now just return.
 
         // Pick up item
-        const remainingItems = items.filter(i => i.id !== item.id);
-        setItems(remainingItems); // Visual remove from grid immediately
+        dispatch({ type: plannerActionTypes.PICKUP_ITEM, payload: item.id }); // Visual remove from grid immediately
         setGhostItem({ ...item, isNew: false }); // Add to hand
     };
 
@@ -129,7 +175,7 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
     };
 
     const handleSave = async () => {
-        const data = { width, length, items };
+        const data = { schemaVersion: 1, width, length, items };
         const jsonString = JSON.stringify(data, null, 2);
 
         try {
@@ -153,7 +199,7 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
         }
 
         // Fallback: Prompt for name
-        const filename = prompt("Enter a name for your garden plan:", "willowbrook-garden");
+        const filename = prompt('Enter a name for your garden plan:', 'willowbrook-garden');
         if (!filename) return; // Cancelled
 
         const blob = new Blob([jsonString], { type: 'application/json' });
@@ -170,10 +216,30 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (event) => {
-            try {
-                const data = JSON.parse(event.target.result);
-                if (data.items) pushToHistory(data.items);
-            } catch (err) { alert("Failed to load."); }
+            const content = typeof event.target?.result === 'string' ? event.target.result : '';
+            const result = parseGardenPlanText(content);
+
+            if (!result.ok) {
+                alert(`Failed to load: ${result.error}`);
+                return;
+            }
+
+            if (result.plan.width !== width || result.plan.length !== length) {
+                if (typeof onLoadGarden === 'function') {
+                    onLoadGarden({
+                        width: result.plan.width,
+                        length: result.plan.length,
+                        items: result.plan.items,
+                    });
+                    return;
+                }
+
+                alert('Loaded plan dimensions do not match the current garden.');
+                return;
+            }
+
+            dispatch({ type: plannerActionTypes.LOAD_ITEMS, payload: result.plan.items });
+            setGhostItem(null);
         };
         reader.readAsText(file);
     };
@@ -183,38 +249,144 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
         const handleKeyDown = (e) => {
             if (e.key === 'Escape') {
                 if (ghostItem && !ghostItem.isNew) {
-                    setItems(history[currentHistoryIndex]); // Revert to last committed state
+                    dispatch({ type: plannerActionTypes.RESET_TO_COMMITTED }); // Revert to last committed state
                 }
                 setGhostItem(null);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [ghostItem, history, currentHistoryIndex, items]);
+    }, [ghostItem, history, currentHistoryIndex]);
+
+    useEffect(() => {
+        fitToView();
+    }, [fitToView]);
+
+    useEffect(() => {
+        const handleResize = () => fitToView();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [fitToView]);
+
+    const getDistance = (touchA, touchB) => {
+        const dx = touchB.clientX - touchA.clientX;
+        const dy = touchB.clientY - touchA.clientY;
+        return Math.hypot(dx, dy);
+    };
+
+    const getMidpoint = (touchA, touchB) => ({
+        x: (touchA.clientX + touchB.clientX) / 2,
+        y: (touchA.clientY + touchB.clientY) / 2,
+    });
+
+    const handleTouchStart = (e) => {
+        if (!viewportRef.current) return;
+        setIsTouch(true);
+
+        if (e.touches.length === 2) {
+            const midpoint = getMidpoint(e.touches[0], e.touches[1]);
+            touchStateRef.current = {
+                mode: 'pinch',
+                lastPan: null,
+                lastDistance: getDistance(e.touches[0], e.touches[1]),
+                lastMidpoint: midpoint,
+            };
+            e.preventDefault();
+            return;
+        }
+
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            if (ghostItem) {
+                setCursorPos(clientToGrid(touch.clientX, touch.clientY));
+                touchStateRef.current = { mode: 'place', lastPan: null, lastDistance: 0, lastMidpoint: null };
+            } else {
+                touchStateRef.current = {
+                    mode: 'pan',
+                    lastPan: { x: touch.clientX, y: touch.clientY },
+                    lastDistance: 0,
+                    lastMidpoint: null,
+                };
+            }
+            e.preventDefault();
+        }
+    };
 
     // Touch Support
     const handleTouchMove = (e) => {
-        if (!gridRef.current) return;
+        if (!viewportRef.current) return;
         setIsTouch(true);
-        const touch = e.touches[0];
-        const rect = gridRef.current.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
 
-        setCursorPos({ x, y });
+        if (e.touches.length === 2) {
+            const currentDistance = getDistance(e.touches[0], e.touches[1]);
+            const currentMidpoint = getMidpoint(e.touches[0], e.touches[1]);
+            const { lastDistance, lastMidpoint } = touchStateRef.current;
 
-        // Prevent scrolling while dragging ghost
-        if (ghostItem) e.preventDefault();
+            if (lastDistance > 0) {
+                setCamera(prev => {
+                    const scale = clampScale(prev.scale * (currentDistance / lastDistance));
+                    const world = clientToGrid(currentMidpoint.x, currentMidpoint.y, prev);
+                    const rect = viewportRef.current.getBoundingClientRect();
+                    const localX = currentMidpoint.x - rect.left;
+                    const localY = currentMidpoint.y - rect.top;
+
+                    return {
+                        scale,
+                        x: localX - (world.x * scale) + (currentMidpoint.x - (lastMidpoint?.x ?? currentMidpoint.x)),
+                        y: localY - (world.y * scale) + (currentMidpoint.y - (lastMidpoint?.y ?? currentMidpoint.y)),
+                    };
+                });
+            }
+
+            touchStateRef.current = {
+                mode: 'pinch',
+                lastPan: null,
+                lastDistance: currentDistance,
+                lastMidpoint: currentMidpoint,
+            };
+            e.preventDefault();
+            return;
+        }
+
+        if (ghostItem && e.touches.length === 1) {
+            const touch = e.touches[0];
+            setCursorPos(clientToGrid(touch.clientX, touch.clientY));
+            e.preventDefault();
+            return;
+        }
+
+        if (touchStateRef.current.mode === 'pan' && e.touches.length === 1) {
+            const touch = e.touches[0];
+            const last = touchStateRef.current.lastPan;
+            if (last) {
+                const dx = touch.clientX - last.x;
+                const dy = touch.clientY - last.y;
+                setCamera(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+            }
+            touchStateRef.current.lastPan = { x: touch.clientX, y: touch.clientY };
+            e.preventDefault();
+        }
     };
 
     const handleTouchEnd = (e) => {
         if (ghostItem) {
             handleGridClick(e);
         }
+        if (e.touches.length === 0) {
+            touchStateRef.current = { mode: null, lastPan: null, lastDistance: 0, lastMidpoint: null };
+        }
     };
 
-    const gridWidthPx = width * CELLS_PER_FOOT * CELL_SIZE;
-    const gridHeightPx = length * CELLS_PER_FOOT * CELL_SIZE;
+    const handleWheel = (e) => {
+        e.preventDefault();
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        zoomAtPoint(camera.scale * zoomFactor, e.clientX, e.clientY);
+    };
+
+    const orderedItems = [...items].sort((a, b) => {
+        if (a.type === b.type) return 0;
+        return a.type === 'structure' ? -1 : 1;
+    });
 
     return (
         <div className="flex h-screen flex-col">
@@ -249,6 +421,10 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                     {ghostItem ? (ghostItem.isNew ? 'Place' : 'Move') : `${width}ft x ${length}ft`}
                 </div>
                 <div className="flex gap-2">
+                    <button onClick={fitToView} className="text-gray-600 hover:text-gray-900 p-2 md:px-3 md:py-1 border border-gray-300 rounded hover:bg-gray-100" title="Fit">
+                        <LocateFixed size={18} className="md:hidden" />
+                        <span className="hidden md:inline text-sm font-medium">Fit</span>
+                    </button>
                     <button onClick={handleSave} className="text-blue-600 hover:text-blue-800 p-2 md:px-3 md:py-1 border border-blue-200 rounded hover:bg-blue-50" title="Save">
                         <Save size={18} className="md:hidden" />
                         <span className="hidden md:inline text-sm font-medium">Save</span>
@@ -266,10 +442,7 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                 </div>
             </header>
 
-            <div className="flex flex-1 overflow-hidden"
-                onMouseMove={handleMouseMove}
-                onTouchMove={handleTouchMove}
-            >
+            <div className="flex flex-1 overflow-hidden">
                 {/* Pass items to Sidebar for Shopping List */}
                 <Sidebar
                     onItemSelect={handleSidebarSelect}
@@ -278,52 +451,69 @@ export default function GardenPlanner({ width, length, onNewGarden }) {
                     onClose={() => setIsSidebarOpen(false)}
                 />
 
-                <main className="flex-1 overflow-auto bg-stone-100 p-4 md:p-8 flex shadow-inner relative cursor-crosshair">
-                    <div className="m-auto relative group">
-                        {/* Main Grid Area */}
+                <main className="flex-1 overflow-hidden bg-stone-100 p-2 md:p-8 flex shadow-inner relative cursor-crosshair">
+                    <div
+                        ref={viewportRef}
+                        className="relative w-full h-full touch-none"
+                        onMouseMove={handleMouseMove}
+                        onWheel={handleWheel}
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                    >
                         <div
-                            ref={gridRef}
-                            onClick={handleGridClick}
-                            onTouchEnd={handleTouchEnd}
-                            className="bg-white shadow-2xl border border-gray-200 relative overflow-hidden print:border-4 print:border-black touch-none"
+                            className="absolute left-0 top-0"
                             style={{
                                 width: gridWidthPx,
                                 height: gridHeightPx,
-                                minWidth: gridWidthPx,
-                                minHeight: gridHeightPx,
-                                backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
-                                backgroundImage: 'linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)'
+                                transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
+                                transformOrigin: 'top left'
                             }}
                         >
-                            {/* Placed Items */}
-                            {items.sort((a, b) => (a.type === 'structure' ? -1 : 1)).map(item => (
-                                <div
-                                    key={item.id}
-                                    onClick={(e) => handleItemClick(e, item)}
-                                    // Fix: pointer-events-none when ghostItem exists allows clicking 'through' structure to grid
-                                    className={`group/item ${ghostItem ? 'pointer-events-none' : ''}`}
-                                    style={{ position: 'absolute', left: item.x, top: item.y, zIndex: item.type === 'plant' ? 10 : 1, cursor: ghostItem ? 'grabbing' : 'grab' }}
-                                >
-                                    <RenderItemContent item={item} />
-                                    {/* Hover Outline for Interaction */}
-                                    {!ghostItem && (
-                                        <div className="absolute inset-0 border-2 border-blue-400 opacity-0 group-hover/item:opacity-100 rounded pointer-events-none transition-opacity print:hidden" />
-                                    )}
-                                </div>
-                            ))}
+                            {/* Main Grid Area */}
+                            <div
+                                ref={gridRef}
+                                onClick={handleGridClick}
+                                className="bg-white shadow-2xl border border-gray-200 relative overflow-hidden print:border-4 print:border-black touch-none"
+                                style={{
+                                    width: gridWidthPx,
+                                    height: gridHeightPx,
+                                    minWidth: gridWidthPx,
+                                    minHeight: gridHeightPx,
+                                    backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
+                                    backgroundImage: 'linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)'
+                                }}
+                            >
+                                {/* Placed Items */}
+                                {orderedItems.map(item => (
+                                    <div
+                                        key={item.id}
+                                        onClick={(e) => handleItemClick(e, item)}
+                                        // Fix: pointer-events-none when ghostItem exists allows clicking 'through' structure to grid
+                                        className={`group/item ${ghostItem ? 'pointer-events-none' : ''}`}
+                                        style={{ position: 'absolute', left: item.x, top: item.y, zIndex: item.type === 'plant' ? 10 : 1, cursor: ghostItem ? 'grabbing' : 'grab' }}
+                                    >
+                                        <RenderItemContent item={item} />
+                                        {/* Hover Outline for Interaction */}
+                                        {!ghostItem && (
+                                            <div className="absolute inset-0 border-2 border-blue-400 opacity-0 group-hover/item:opacity-100 rounded pointer-events-none transition-opacity print:hidden" />
+                                        )}
+                                    </div>
+                                ))}
 
-                            {/* Ghost Item */}
-                            {ghostItem && (
-                                <div
-                                    style={{ position: 'absolute', left: ghostPos.x, top: ghostPos.y, opacity: 0.6, pointerEvents: 'none', zIndex: 50 }}
-                                >
-                                    {/* Spacing Guide Ring (1sq ft = 2x2 cells = 30px) */}
-                                    {ghostItem.type === 'plant' && (
-                                        <div className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed animate-spin-slow pointer-events-none" style={{ width: CELL_SIZE * 2, height: CELL_SIZE * 2, left: -((CELL_SIZE * 2 - CELL_SIZE) / 2), top: -((CELL_SIZE * 2 - CELL_SIZE) / 2) }} />
-                                    )}
-                                    <RenderItemContent item={ghostItem} isGhost={true} />
-                                </div>
-                            )}
+                                {/* Ghost Item */}
+                                {ghostItem && (
+                                    <div
+                                        style={{ position: 'absolute', left: ghostPos.x, top: ghostPos.y, opacity: 0.6, pointerEvents: 'none', zIndex: 50 }}
+                                    >
+                                        {/* Spacing Guide Ring (1sq ft = 2x2 cells = 30px) */}
+                                        {ghostItem.type === 'plant' && (
+                                            <div className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed animate-spin-slow pointer-events-none" style={{ width: CELL_SIZE * 2, height: CELL_SIZE * 2, left: -((CELL_SIZE * 2 - CELL_SIZE) / 2), top: -((CELL_SIZE * 2 - CELL_SIZE) / 2) }} />
+                                        )}
+                                        <RenderItemContent item={ghostItem} isGhost={true} />
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Trash Zone */}
@@ -353,22 +543,17 @@ function RenderItemContent({ item, isGhost }) {
         // Garden Plot = Dark Green Border, Brown Dirt
         const borderClass = isPlot ? 'border-green-800' : 'border-teal-400';
 
-        // Visual Refinement:
-        // 1. Remove STRUCTURE_GRID_PATTERN
-        // 2. Use rgba opacity for background so main grid shows through
         const style = {
             width: w,
             height: h,
             backgroundImage: DIRT_PATTERN,
-            backgroundSize: `20px 20px`,
+            backgroundSize: '20px 20px',
             backgroundColor: 'rgba(93, 64, 55, 0.4)' // Semi-transparent brown
         };
 
         return (
             <div
                 style={style}
-                // Reduced border thickness to border-2 (approx 2px)
-                // Apply rounded-full if round, otherwise rounded
                 className={`border-2 shadow-sm ${borderClass} opacity-90 ${isRound ? 'rounded-full' : 'rounded'} flex items-center justify-center`}
             >
                 {/* Structure Label (Dimensions) */}
