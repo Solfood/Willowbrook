@@ -10,21 +10,20 @@ import {
     Trash2,
     Undo,
     Upload,
-    Menu,
+    BookOpen,
+    Sprout,
+    Wrench,
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { createPlannerInitialState, plannerActionTypes, plannerReducer } from '../features/planner/planReducer';
 import { parseGardenPlanText } from '../features/planner/planSchema';
 import { getPlantImage } from '../features/catalog/catalog';
 
-const CELL_SIZE = 15; // px
-const CELLS_PER_FOOT = 2; // 0.5ft per cell
-const GRID_SIZE = CELL_SIZE;
+const CELL_SIZE = 15;
+const CELLS_PER_FOOT = 2;
+const FOOT_PX = CELL_SIZE * CELLS_PER_FOOT;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 3;
-const TOUCH_TAP_MOVE_PX = 8;
-const MOMENTUM_FRICTION = 0.92;
-const MOMENTUM_STOP = 0.3;
 
 const DIRT_PATTERN = `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%235D4037' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`;
 
@@ -32,17 +31,17 @@ function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
-function getDistance(a, b) {
-    const dx = b.clientX - a.clientX;
-    const dy = b.clientY - a.clientY;
-    return Math.hypot(dx, dy);
-}
-
-function getMidpoint(a, b) {
-    return {
-        x: (a.clientX + b.clientX) / 2,
-        y: (a.clientY + b.clientY) / 2,
-    };
+function getItemPixelSize(item, overrides = {}) {
+    const nextType = overrides.type || item.type;
+    if (nextType === 'structure') {
+        const widthFeet = overrides.width ?? item.width ?? 1;
+        const lengthFeet = overrides.length ?? item.length ?? 1;
+        return {
+            w: widthFeet * CELLS_PER_FOOT * CELL_SIZE,
+            h: lengthFeet * CELLS_PER_FOOT * CELL_SIZE,
+        };
+    }
+    return { w: CELL_SIZE, h: CELL_SIZE };
 }
 
 export default function GardenPlanner({ width, length, initialItems = [], onNewGarden, onLoadGarden }) {
@@ -53,13 +52,22 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     const { items, history, currentHistoryIndex } = plannerState;
 
     const [selectedTool, setSelectedTool] = useState(null);
+    const [selectedItemId, setSelectedItemId] = useState(null);
     const [mode, setMode] = useState('pan'); // pan | place | move
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
     const [cursorWorld, setCursorWorld] = useState({ x: worldWidth / 2, y: worldHeight / 2 });
-    const [isMobile, setIsMobile] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        return window.matchMedia('(max-width: 767px)').matches;
+    const [rightTab, setRightTab] = useState('learn'); // learn | layers | timeline
+    const [layers, setLayers] = useState({
+        grid: true,
+        structures: true,
+        plants: true,
+        guides: true,
+    });
+    const [safeMoveMode, setSafeMoveMode] = useState(true);
+    const [snapFeet, setSnapFeet] = useState(0.5);
+    const [isDesktopReady, setIsDesktopReady] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        return window.innerWidth >= 1100 && !window.matchMedia('(pointer: coarse)').matches;
     });
 
     const viewportRef = useRef(null);
@@ -71,26 +79,14 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         originX: 0,
         originY: 0,
     });
-    const touchRef = useRef({
-        mode: null, // pan | pinch | place
-        moved: false,
-        lastPan: null,
-        lastDistance: 0,
-        lastMidpoint: null,
-        velocity: { x: 0, y: 0 },
-        momentumFrame: null,
-    });
-
-    const activeMode = isMobile && mode === 'move' ? 'pan' : mode;
-
-    const commitItems = useCallback((nextItems) => {
-        dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: nextItems });
-    }, []);
 
     const clearSelection = useCallback(() => {
         setSelectedTool(null);
     }, []);
 
+    const commitItems = useCallback((nextItems) => {
+        dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: nextItems });
+    }, []);
 
     const toWorld = useCallback((clientX, clientY, activeCamera = camera) => {
         if (!viewportRef.current) return { x: 0, y: 0 };
@@ -101,13 +97,17 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         };
     }, [camera]);
 
+    const setCursorFromClient = useCallback((clientX, clientY) => {
+        setCursorWorld(toWorld(clientX, clientY));
+    }, [toWorld]);
+
     const fitToView = useCallback(() => {
         if (!viewportRef.current) return;
         const rect = viewportRef.current.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
 
         const scale = clamp(
-            Math.min((rect.width - 32) / worldWidth, (rect.height - 32) / worldHeight),
+            Math.min((rect.width - 48) / worldWidth, (rect.height - 48) / worldHeight),
             MIN_SCALE,
             MAX_SCALE
         );
@@ -135,27 +135,15 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         });
     }, [toWorld]);
 
-    const stopMomentum = useCallback(() => {
-        if (touchRef.current.momentumFrame) {
-            cancelAnimationFrame(touchRef.current.momentumFrame);
-            touchRef.current.momentumFrame = null;
-        }
-        touchRef.current.velocity = { x: 0, y: 0 };
-    }, []);
-
     const zoomFromViewportCenter = useCallback((nextScale) => {
         if (!viewportRef.current) return;
         const rect = viewportRef.current.getBoundingClientRect();
         zoomAt(nextScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
     }, [zoomAt]);
 
-    const setCursorFromClient = useCallback((clientX, clientY) => {
-        setCursorWorld(toWorld(clientX, clientY));
-    }, [toWorld]);
-
     const pickUpItem = useCallback((item) => {
-        if (isMobile) return;
         dispatch({ type: plannerActionTypes.PICKUP_ITEM, payload: item.id });
+        setSelectedItemId(item.id);
         setSelectedTool({
             ...item,
             itemId: item.itemId || item.id,
@@ -163,7 +151,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             id: item.id,
         });
         setMode('move');
-    }, [isMobile]);
+    }, []);
 
     const toolPixelSize = useMemo(() => {
         if (!selectedTool) return { w: CELL_SIZE, h: CELL_SIZE };
@@ -176,22 +164,33 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         return { w: CELL_SIZE, h: CELL_SIZE };
     }, [selectedTool]);
 
+    const snapPx = useMemo(() => {
+        if (snapFeet === 0) return null;
+        return snapFeet * FOOT_PX;
+    }, [snapFeet]);
+
     const ghostPos = useMemo(() => {
         if (!selectedTool) return null;
-        const x = Math.round((cursorWorld.x - toolPixelSize.w / 2) / GRID_SIZE) * GRID_SIZE;
-        const y = Math.round((cursorWorld.y - toolPixelSize.h / 2) / GRID_SIZE) * GRID_SIZE;
-        return { x, y };
-    }, [selectedTool, cursorWorld, toolPixelSize]);
+        if (!snapPx) {
+            return { x: cursorWorld.x - toolPixelSize.w / 2, y: cursorWorld.y - toolPixelSize.h / 2 };
+        }
+        return {
+            x: Math.round((cursorWorld.x - toolPixelSize.w / 2) / snapPx) * snapPx,
+            y: Math.round((cursorWorld.y - toolPixelSize.h / 2) / snapPx) * snapPx,
+        };
+    }, [selectedTool, cursorWorld, toolPixelSize, snapPx]);
 
     const placeSelectedAt = useCallback((worldPoint) => {
         if (!selectedTool) return false;
-        const w = toolPixelSize.w;
-        const h = toolPixelSize.h;
 
-        const snappedX = Math.round((worldPoint.x - w / 2) / GRID_SIZE) * GRID_SIZE;
-        const snappedY = Math.round((worldPoint.y - h / 2) / GRID_SIZE) * GRID_SIZE;
+        const snappedX = snapPx
+            ? Math.round((worldPoint.x - toolPixelSize.w / 2) / snapPx) * snapPx
+            : worldPoint.x - toolPixelSize.w / 2;
+        const snappedY = snapPx
+            ? Math.round((worldPoint.y - toolPixelSize.h / 2) / snapPx) * snapPx
+            : worldPoint.y - toolPixelSize.h / 2;
 
-        if (snappedX < 0 || snappedY < 0 || snappedX + w > worldWidth || snappedY + h > worldHeight) {
+        if (snappedX < 0 || snappedY < 0 || snappedX + toolPixelSize.w > worldWidth || snappedY + toolPixelSize.h > worldHeight) {
             return false;
         }
 
@@ -204,16 +203,16 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         commitItems([...items, nextItem]);
 
-        // Keep newly selected plants in hand for rapid multi-placement on mobile/desktop.
         if (selectedTool.isNew && selectedTool.type === 'plant') {
             setSelectedTool((prev) => (prev ? { ...prev, id: Date.now() } : prev));
         } else {
             clearSelection();
         }
         return true;
-    }, [selectedTool, toolPixelSize, worldWidth, worldHeight, commitItems, items, clearSelection]);
+    }, [selectedTool, toolPixelSize, worldWidth, worldHeight, commitItems, items, clearSelection, snapPx]);
 
     const handleSidebarSelect = useCallback((item) => {
+        setSelectedItemId(null);
         setSelectedTool({
             ...item,
             itemId: item.id,
@@ -221,19 +220,20 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             id: Date.now(),
         });
         setMode('place');
-        setIsSidebarOpen(false);
     }, []);
 
     const handleUndo = useCallback(() => {
         if (currentHistoryIndex <= 0) return;
         dispatch({ type: plannerActionTypes.UNDO });
         clearSelection();
+        setSelectedItemId(null);
     }, [currentHistoryIndex, clearSelection]);
 
     const handleRedo = useCallback(() => {
         if (currentHistoryIndex >= history.length - 1) return;
         dispatch({ type: plannerActionTypes.REDO });
         clearSelection();
+        setSelectedItemId(null);
     }, [currentHistoryIndex, history.length, clearSelection]);
 
     const handleTrash = useCallback(() => {
@@ -241,7 +241,21 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             commitItems(items);
         }
         clearSelection();
+        setSelectedItemId(null);
     }, [selectedTool, commitItems, items, clearSelection]);
+
+    const selectedPlacedItem = useMemo(
+        () => items.find((item) => item.id === selectedItemId) || null,
+        [items, selectedItemId]
+    );
+
+    const applyItemPatch = useCallback((itemId, patch) => {
+        const nextItems = items.map((item) => {
+            if (item.id !== itemId) return item;
+            return { ...item, ...patch };
+        });
+        commitItems(nextItems);
+    }, [items, commitItems]);
 
     const handleSave = useCallback(async () => {
         const data = { schemaVersion: 1, width, length, items };
@@ -263,7 +277,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             }
         } catch (err) {
             if (err.name === 'AbortError') return;
-            console.error('Save picker failed, using download fallback:', err);
+            console.error('Save picker failed, using fallback:', err);
         }
 
         const filename = prompt('Enter a name for your garden plan:', 'willowbrook-garden');
@@ -301,7 +315,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     });
                     return;
                 }
-                alert('Loaded plan dimensions do not match the current garden.');
+                alert('Loaded plan dimensions do not match current garden.');
                 return;
             }
 
@@ -333,37 +347,64 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     dispatch({ type: plannerActionTypes.RESET_TO_COMMITTED });
                 }
                 clearSelection();
+                setSelectedItemId(null);
+                return;
+            }
+
+            if (!selectedPlacedItem || selectedTool || mode === 'pan') {
+                return;
+            }
+
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                const target = e.target;
+                if (target instanceof HTMLElement) {
+                    const tag = target.tagName.toLowerCase();
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
+                        return;
+                    }
+                }
+
+                e.preventDefault();
+                const stepPx = snapPx || FOOT_PX / 2;
+                const { w, h } = getItemPixelSize(selectedPlacedItem);
+                const maxX = Math.max(0, worldWidth - w);
+                const maxY = Math.max(0, worldHeight - h);
+                let nextX = selectedPlacedItem.x;
+                let nextY = selectedPlacedItem.y;
+
+                if (e.key === 'ArrowLeft') nextX -= stepPx;
+                if (e.key === 'ArrowRight') nextX += stepPx;
+                if (e.key === 'ArrowUp') nextY -= stepPx;
+                if (e.key === 'ArrowDown') nextY += stepPx;
+
+                applyItemPatch(selectedPlacedItem.id, {
+                    x: clamp(nextX, 0, maxX),
+                    y: clamp(nextY, 0, maxY),
+                });
             }
         };
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedTool, clearSelection, handleUndo, handleRedo]);
+    }, [selectedTool, selectedPlacedItem, mode, snapPx, worldWidth, worldHeight, applyItemPatch, clearSelection, handleUndo, handleRedo]);
 
     useEffect(() => {
         fitToView();
     }, [fitToView]);
 
     useEffect(() => {
-        const onResize = () => fitToView();
+        const onResize = () => {
+            setIsDesktopReady(window.innerWidth >= 1100 && !window.matchMedia('(pointer: coarse)').matches);
+        };
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
-    }, [fitToView]);
-
-    useEffect(() => {
-        const media = window.matchMedia('(max-width: 767px)');
-        const handleChange = () => setIsMobile(media.matches);
-        handleChange();
-        media.addEventListener('change', handleChange);
-        return () => media.removeEventListener('change', handleChange);
     }, []);
 
     const onMouseDown = (e) => {
         if (e.button !== 0) return;
-        stopMomentum();
         setCursorFromClient(e.clientX, e.clientY);
 
-        const shouldPan = activeMode === 'pan' || !selectedTool;
+        const shouldPan = mode === 'pan' || !selectedTool;
         if (shouldPan) {
             mouseDragRef.current = {
                 active: true,
@@ -384,15 +425,9 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         const dx = e.clientX - drag.startX;
         const dy = e.clientY - drag.startY;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-            drag.moved = true;
-        }
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
 
-        setCamera((prev) => ({
-            ...prev,
-            x: drag.originX + dx,
-            y: drag.originY + dy,
-        }));
+        setCamera((prev) => ({ ...prev, x: drag.originX + dx, y: drag.originY + dy }));
     };
 
     const onMouseUp = (e) => {
@@ -402,156 +437,13 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         setCursorFromClient(e.clientX, e.clientY);
 
-        if (!wasDrag && activeMode !== 'pan' && selectedTool) {
-            const world = toWorld(e.clientX, e.clientY);
-            placeSelectedAt(world);
-        }
-    };
-
-    const onTouchStart = (e) => {
-        if (!viewportRef.current) return;
-
-        if (e.touches.length === 2) {
-            touchRef.current = {
-                mode: 'pinch',
-                moved: true,
-                lastPan: null,
-                lastDistance: getDistance(e.touches[0], e.touches[1]),
-                lastMidpoint: getMidpoint(e.touches[0], e.touches[1]),
-                velocity: { x: 0, y: 0 },
-                momentumFrame: null,
-            };
-            e.preventDefault();
+        if (!wasDrag && mode !== 'pan' && selectedTool) {
+            placeSelectedAt(toWorld(e.clientX, e.clientY));
             return;
         }
 
-        if (e.touches.length === 1) {
-            const touch = e.touches[0];
-            setCursorFromClient(touch.clientX, touch.clientY);
-
-            const shouldPan = activeMode === 'pan' || !selectedTool;
-            touchRef.current = {
-                mode: shouldPan ? 'pan' : 'place',
-                moved: false,
-                lastPan: { x: touch.clientX, y: touch.clientY, t: performance.now() },
-                lastDistance: 0,
-                lastMidpoint: null,
-                velocity: { x: 0, y: 0 },
-                momentumFrame: null,
-            };
-            stopMomentum();
-            e.preventDefault();
-        }
-    };
-
-    const onTouchMove = (e) => {
-        if (!viewportRef.current) return;
-
-        if (e.touches.length === 2) {
-            const distance = getDistance(e.touches[0], e.touches[1]);
-            const midpoint = getMidpoint(e.touches[0], e.touches[1]);
-            const prev = touchRef.current;
-
-            setCamera((current) => {
-                const baseScale = prev.lastDistance > 0 ? current.scale * (distance / prev.lastDistance) : current.scale;
-                const scale = clamp(baseScale, MIN_SCALE, MAX_SCALE);
-                const world = toWorld(midpoint.x, midpoint.y, current);
-                const rect = viewportRef.current.getBoundingClientRect();
-                const localX = midpoint.x - rect.left;
-                const localY = midpoint.y - rect.top;
-
-                return {
-                    scale,
-                    x: localX - world.x * scale,
-                    y: localY - world.y * scale,
-                };
-            });
-
-            touchRef.current = {
-                mode: 'pinch',
-                moved: true,
-                lastPan: null,
-                lastDistance: distance,
-                lastMidpoint: midpoint,
-            };
-            e.preventDefault();
-            return;
-        }
-
-        if (e.touches.length === 1) {
-            const touch = e.touches[0];
-            setCursorFromClient(touch.clientX, touch.clientY);
-
-            if (touchRef.current.mode === 'pan' && touchRef.current.lastPan) {
-                const dx = touch.clientX - touchRef.current.lastPan.x;
-                const dy = touch.clientY - touchRef.current.lastPan.y;
-                if (Math.abs(dx) > TOUCH_TAP_MOVE_PX || Math.abs(dy) > TOUCH_TAP_MOVE_PX) {
-                    touchRef.current.moved = true;
-                }
-                const now = performance.now();
-                const dt = Math.max(1, now - touchRef.current.lastPan.t);
-                touchRef.current.velocity = { x: dx / dt, y: dy / dt };
-                setCamera((current) => ({
-                    ...current,
-                    x: current.x + dx,
-                    y: current.y + dy,
-                }));
-                touchRef.current.lastPan = { x: touch.clientX, y: touch.clientY, t: now };
-                e.preventDefault();
-            }
-
-            if (touchRef.current.mode === 'place' && touchRef.current.lastPan) {
-                const dx = touch.clientX - touchRef.current.lastPan.x;
-                const dy = touch.clientY - touchRef.current.lastPan.y;
-                if (Math.abs(dx) > TOUCH_TAP_MOVE_PX || Math.abs(dy) > TOUCH_TAP_MOVE_PX) {
-                    touchRef.current.moved = true;
-                }
-                e.preventDefault();
-            }
-        }
-    };
-
-    const onTouchEnd = (e) => {
-        if (touchRef.current.mode === 'place' && activeMode !== 'pan' && !touchRef.current.moved && selectedTool && e.changedTouches.length > 0) {
-            const touch = e.changedTouches[0];
-            const world = toWorld(touch.clientX, touch.clientY);
-            placeSelectedAt(world);
-        }
-
-        if (e.touches.length === 0) {
-            if (touchRef.current.mode === 'pan' && touchRef.current.moved) {
-                const step = () => {
-                    const v = touchRef.current.velocity;
-                    if (Math.abs(v.x) < MOMENTUM_STOP && Math.abs(v.y) < MOMENTUM_STOP) {
-                        touchRef.current.momentumFrame = null;
-                        touchRef.current.velocity = { x: 0, y: 0 };
-                        return;
-                    }
-
-                    setCamera((current) => ({
-                        ...current,
-                        x: current.x + v.x * 16,
-                        y: current.y + v.y * 16,
-                    }));
-
-                    touchRef.current.velocity = {
-                        x: v.x * MOMENTUM_FRICTION,
-                        y: v.y * MOMENTUM_FRICTION,
-                    };
-                    touchRef.current.momentumFrame = requestAnimationFrame(step);
-                };
-                touchRef.current.momentumFrame = requestAnimationFrame(step);
-            }
-
-            touchRef.current = {
-                mode: null,
-                moved: false,
-                lastPan: null,
-                lastDistance: 0,
-                lastMidpoint: null,
-                velocity: touchRef.current.velocity,
-                momentumFrame: touchRef.current.momentumFrame,
-            };
+        if (!wasDrag && !selectedTool) {
+            setSelectedItemId(null);
         }
     };
 
@@ -561,112 +453,163 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         zoomAt(camera.scale * factor, e.clientX, e.clientY);
     };
 
-    useEffect(() => {
-        return () => stopMomentum();
-    }, [stopMomentum]);
-
     const orderedItems = useMemo(() => {
-        return [...items].sort((a, b) => {
+        return [...items]
+            .filter((item) => {
+                if (item.type === 'structure' && !layers.structures) return false;
+                if (item.type === 'plant' && !layers.plants) return false;
+                return true;
+            })
+            .sort((a, b) => {
             if (a.type === b.type) return 0;
             return a.type === 'structure' ? -1 : 1;
         });
-    }, [items]);
+    }, [items, layers]);
+
+    const rulerTopTicks = useMemo(() => {
+        return Array.from({ length: width + 1 }, (_, i) => i);
+    }, [width]);
+
+    const rulerLeftTicks = useMemo(() => {
+        return Array.from({ length: length + 1 }, (_, i) => i);
+    }, [length]);
+
+    if (!isDesktopReady) {
+        return (
+            <div className="min-h-screen bg-stone-100 flex items-center justify-center p-6">
+                <div className="max-w-lg bg-white border border-amber-200 rounded-xl shadow-sm p-6">
+                    <h1 className="text-2xl font-bold text-gray-800 mb-2">Desktop Required</h1>
+                    <p className="text-sm text-gray-600 mb-4">
+                        Willowbrook Planner is currently optimized for desktop editing. Please use a larger screen with a mouse/trackpad for the full experience.
+                    </p>
+                    <p className="text-sm text-gray-600">
+                        Your plan files still work normally. Open this same URL on desktop to continue.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="flex h-screen flex-col">
+        <div className="h-screen flex flex-col bg-[#f2f2f2]">
             <style>{`
                 @media print {
                     @page { size: landscape; margin: 0.5cm; }
-                    header, aside, .mobile-controls, .floating-trash { display: none !important; }
-                    body { background: white; }
+                    header, aside, .floating-trash, .left-rail, .right-panel, .toolbar-row { display: none !important; }
                     main { box-shadow: none; margin: 0; padding: 0; overflow: visible; }
                 }
             `}</style>
 
-            <header className="bg-white shadow p-3 z-40 flex justify-between items-center px-3 md:px-8 print:hidden gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-gray-600" title="Catalog">
-                        <Menu size={22} />
-                    </button>
-                    <h1 className="text-lg md:text-xl font-bold text-green-800 whitespace-nowrap">Willowbrook</h1>
-                    <div className="hidden md:flex gap-1 ml-3 border-l pl-3 border-gray-300">
-                        <button onClick={handleUndo} disabled={currentHistoryIndex <= 0} className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 rounded hover:bg-gray-100"><Undo size={19} /></button>
-                        <button onClick={handleRedo} disabled={currentHistoryIndex >= history.length - 1} className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 rounded hover:bg-gray-100"><Redo size={19} /></button>
+            <header className="bg-white border-b border-gray-300 print:hidden">
+                <div className="h-12 px-3 flex items-center gap-3 text-sm">
+                    <div className="font-semibold text-gray-800">Plan</div>
+                    <div className="text-gray-500">Plant List</div>
+                    <div className="text-gray-500">Parts List</div>
+                    <div className="text-gray-500">Shopping</div>
+                    <div className="text-gray-500">Notes</div>
+                    <div className="ml-auto flex items-center gap-2">
+                        <button onClick={handleSave} className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100 inline-flex items-center gap-1"><Save size={14} />Save</button>
+                        <label className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100 cursor-pointer inline-flex items-center gap-1">
+                            <Upload size={14} />Load
+                            <input type="file" onChange={handleLoad} accept=".json" className="hidden" />
+                        </label>
                     </div>
                 </div>
 
-                <div className="hidden md:flex items-center gap-2">
-                    <button onClick={() => setMode('pan')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-gray-700 border-gray-300'}`}><Hand size={14} className="inline mr-1" />Pan</button>
-                    <button onClick={() => setMode('place')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'}`}><Grip size={14} className="inline mr-1" />Place</button>
-                    {!isMobile && (
-                        <button onClick={() => setMode('move')} className={`px-3 py-1 text-sm rounded border ${activeMode === 'move' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300'}`}>Move</button>
-                    )}
-                    <button onClick={() => zoomFromViewportCenter(camera.scale * 0.9)} className="p-2 border rounded border-gray-300 text-gray-700 hover:bg-gray-100" title="Zoom out"><Minus size={16} /></button>
+                <div className="toolbar-row h-12 px-3 border-t border-gray-200 flex items-center gap-2">
+                    <button onClick={handleUndo} disabled={currentHistoryIndex <= 0} className="p-2 border rounded border-gray-300 disabled:opacity-30"><Undo size={16} /></button>
+                    <button onClick={handleRedo} disabled={currentHistoryIndex >= history.length - 1} className="p-2 border rounded border-gray-300 disabled:opacity-30"><Redo size={16} /></button>
+                    <span className="w-px h-6 bg-gray-300 mx-1" />
+                    <button onClick={() => setMode('pan')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-gray-700 border-gray-300'}`}><Hand size={14} className="inline mr-1" />Pan</button>
+                    <button onClick={() => setMode('place')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'}`}><Grip size={14} className="inline mr-1" />Place</button>
+                    <button onClick={() => setMode('move')} className={`px-3 py-1.5 text-sm rounded border ${mode === 'move' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300'}`}>Move</button>
+                    <span className="w-px h-6 bg-gray-300 mx-1" />
+                    <label className="text-xs text-gray-600">Snap</label>
+                    <select
+                        value={snapFeet}
+                        onChange={(e) => setSnapFeet(Number(e.target.value))}
+                        className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                    >
+                        <option value={0}>Off</option>
+                        <option value={0.5}>0.5 ft</option>
+                        <option value={1}>1 ft</option>
+                    </select>
+                    <span className="w-px h-6 bg-gray-300 mx-1" />
+                    <button onClick={() => zoomFromViewportCenter(camera.scale * 0.9)} className="p-2 border rounded border-gray-300"><Minus size={16} /></button>
                     <span className="text-xs w-14 text-center text-gray-600">{Math.round(camera.scale * 100)}%</span>
-                    <button onClick={() => zoomFromViewportCenter(camera.scale * 1.1)} className="p-2 border rounded border-gray-300 text-gray-700 hover:bg-gray-100" title="Zoom in"><Plus size={16} /></button>
-                </div>
-
-                <div className={`text-xs md:text-sm font-medium px-2 md:px-3 py-1 rounded-full border truncate max-w-[130px] md:max-w-none ${selectedTool ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                    {selectedTool ? (selectedTool.isNew ? 'Placing' : 'Moving') : `${width}ft x ${length}ft`}
-                </div>
-
-                <div className="flex items-center gap-1 md:gap-2">
-                    <button onClick={fitToView} className="text-gray-600 hover:text-gray-900 p-2 md:px-3 md:py-1 border border-gray-300 rounded hover:bg-gray-100" title="Fit">
-                        <LocateFixed size={17} className="md:hidden" />
-                        <span className="hidden md:inline text-sm font-medium">Fit</span>
-                    </button>
-                    <button onClick={handleSave} className="text-blue-600 hover:text-blue-800 p-2 md:px-3 md:py-1 border border-blue-200 rounded hover:bg-blue-50" title="Save">
-                        <Save size={17} className="md:hidden" />
-                        <span className="hidden md:inline text-sm font-medium">Save</span>
-                    </button>
-                    <label className="text-blue-600 hover:text-blue-800 p-2 md:px-3 md:py-1 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer" title="Load">
-                        <Upload size={17} className="md:hidden" />
-                        <span className="hidden md:inline text-sm font-medium">Load</span>
-                        <input type="file" onChange={handleLoad} accept=".json" className="hidden" />
-                    </label>
-                    <button onClick={onNewGarden} className="text-red-500 hover:text-red-700 p-2 md:px-3 md:py-1 border border-red-200 rounded hover:bg-red-50" title="New Garden">
-                        <Plus size={17} className="md:hidden" />
-                        <span className="hidden md:inline text-sm font-medium">New</span>
-                    </button>
-                    <button onClick={() => window.print()} className="hidden md:block text-sm text-gray-600 hover:text-gray-900 font-medium px-3 py-1 border border-gray-300 rounded hover:bg-gray-100">Print</button>
+                    <button onClick={() => zoomFromViewportCenter(camera.scale * 1.1)} className="p-2 border rounded border-gray-300"><Plus size={16} /></button>
+                    <button onClick={fitToView} className="p-2 border rounded border-gray-300"><LocateFixed size={16} /></button>
+                    <span className="ml-auto text-xs text-gray-600 px-3 py-1 rounded-full border border-gray-300 bg-gray-50">
+                        {selectedTool ? (selectedTool.isNew ? 'Placing' : 'Moving') : `${width}ft x ${length}ft`}
+                    </span>
+                    <button onClick={onNewGarden} className="px-3 py-1.5 border border-red-300 rounded text-red-600 hover:bg-red-50">New</button>
+                    <button onClick={() => window.print()} className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100">Print</button>
                 </div>
             </header>
 
-            <div className="flex flex-1 overflow-hidden">
-                <Sidebar
-                    onItemSelect={handleSidebarSelect}
-                    items={items}
-                    isOpen={isSidebarOpen}
-                    onClose={() => setIsSidebarOpen(false)}
-                />
+            <div className="flex flex-1 min-h-0">
+                <div className="left-rail w-12 bg-green-700 border-r border-green-900 text-white flex flex-col items-center py-3 gap-3 print:hidden">
+                    <button className="p-2 rounded bg-green-800"><Sprout size={16} /></button>
+                    <button className="p-2 rounded hover:bg-green-800"><Wrench size={16} /></button>
+                    <button className="p-2 rounded hover:bg-green-800"><BookOpen size={16} /></button>
+                </div>
 
-                <main className="flex-1 overflow-hidden bg-stone-100 p-2 md:p-6 flex shadow-inner relative">
-                    {isMobile && (
-                        <div className="absolute top-2 left-2 right-2 z-20 text-[11px] md:hidden bg-blue-50 border border-blue-200 text-blue-800 rounded px-2 py-1">
-                            Mobile quick-edit mode: add/place items and review plan. Desktop is recommended for full precision editing.
-                        </div>
-                    )}
+                <Sidebar onItemSelect={handleSidebarSelect} items={items} />
+
+                <main className="flex-1 overflow-hidden bg-[#e8e8e8] p-4 flex relative border-r border-gray-300">
                     <div
                         ref={viewportRef}
-                        className="relative w-full h-full touch-none rounded-lg"
+                        className="relative w-full h-full rounded border border-gray-300 bg-[#d9d9d9]"
                         onContextMenu={(e) => e.preventDefault()}
                         onMouseDown={onMouseDown}
                         onMouseMove={onMouseMove}
                         onMouseUp={onMouseUp}
                         onMouseLeave={onMouseUp}
-                        onTouchStart={onTouchStart}
-                        onTouchMove={onTouchMove}
-                        onTouchEnd={onTouchEnd}
                         onWheel={onWheel}
-                        style={{
-                            WebkitTouchCallout: 'none',
-                            WebkitUserSelect: 'none',
-                            userSelect: 'none',
-                            WebkitTapHighlightColor: 'transparent',
-                        }}
+                        style={{ userSelect: 'none' }}
                     >
+                        <div className="absolute left-8 top-0 right-0 h-8 border-b border-gray-300 bg-gray-100 z-20 overflow-hidden pointer-events-none">
+                            <div
+                                className="absolute left-0 top-0 h-full"
+                                style={{
+                                    width: worldWidth * camera.scale,
+                                    transform: `translateX(${camera.x}px)`,
+                                }}
+                            >
+                                {rulerTopTicks.map((tick) => (
+                                    <div
+                                        key={`top-${tick}`}
+                                        className="absolute top-0 h-full border-l border-gray-400/60 text-[10px] text-gray-700"
+                                        style={{ left: tick * FOOT_PX * camera.scale }}
+                                    >
+                                        <span className="absolute top-1 left-1">{tick}'</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="absolute left-0 top-8 bottom-0 w-8 border-r border-gray-300 bg-gray-100 z-20 overflow-hidden pointer-events-none">
+                            <div
+                                className="absolute left-0 top-0 w-full"
+                                style={{
+                                    height: worldHeight * camera.scale,
+                                    transform: `translateY(${camera.y}px)`,
+                                }}
+                            >
+                                {rulerLeftTicks.map((tick) => (
+                                    <div
+                                        key={`left-${tick}`}
+                                        className="absolute left-0 w-full border-t border-gray-400/60 text-[10px] text-gray-700"
+                                        style={{ top: tick * FOOT_PX * camera.scale }}
+                                    >
+                                        <span className="absolute left-1 top-0.5 -rotate-90 origin-top-left">{tick}'</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
                         <div
-                            className="absolute left-0 top-0"
+                            className="absolute left-8 top-8"
                             style={{
                                 width: worldWidth,
                                 height: worldHeight,
@@ -675,14 +618,14 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                             }}
                         >
                             <div
-                                className="bg-white shadow-2xl border border-gray-200 relative overflow-hidden print:border-4 print:border-black"
+                                className="bg-white shadow-2xl border border-gray-300 relative overflow-hidden print:border-4 print:border-black"
                                 style={{
                                     width: worldWidth,
                                     height: worldHeight,
-                                    minWidth: worldWidth,
-                                    minHeight: worldHeight,
                                     backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
-                                    backgroundImage: 'linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)',
+                                    backgroundImage: layers.grid
+                                        ? 'linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)'
+                                        : 'none',
                                 }}
                             >
                                 {orderedItems.map((item) => (
@@ -691,27 +634,29 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                         className={`group/item ${selectedTool ? 'pointer-events-none' : ''}`}
                                         onMouseDown={(e) => {
                                             e.stopPropagation();
-                                            if (!isMobile && activeMode === 'move' && !selectedTool) {
-                                                pickUpItem(item);
-                                            }
                                         }}
-                                        onTouchStart={(e) => {
+                                        onClick={(e) => {
                                             e.stopPropagation();
-                                            if (!isMobile && activeMode === 'move' && !selectedTool) {
-                                                pickUpItem(item);
-                                            }
+                                            setSelectedItemId(item.id);
+                                        }}
+                                        onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            if (mode === 'move' && !selectedTool && !safeMoveMode) pickUpItem(item);
                                         }}
                                         style={{
                                             position: 'absolute',
                                             left: item.x,
                                             top: item.y,
                                             zIndex: item.type === 'plant' ? 10 : 1,
-                                            cursor: activeMode === 'move' ? 'grab' : 'default',
+                                            cursor: mode === 'move' && !safeMoveMode ? 'grab' : 'default',
                                         }}
                                     >
                                         <RenderItemContent item={item} />
-                                        {!selectedTool && activeMode === 'move' && (
-                                            <div className="absolute inset-0 border-2 border-blue-400 opacity-0 group-hover/item:opacity-100 rounded pointer-events-none transition-opacity print:hidden" />
+                                        {!selectedTool && mode === 'move' && layers.guides && (
+                                            <div className="absolute inset-0 border-2 border-blue-400 opacity-0 group-hover/item:opacity-100 rounded pointer-events-none transition-opacity" />
+                                        )}
+                                        {selectedItemId === item.id && (
+                                            <div className="absolute inset-[-2px] border-2 border-amber-500 rounded pointer-events-none" />
                                         )}
                                     </div>
                                 ))}
@@ -727,9 +672,9 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                             zIndex: 50,
                                         }}
                                     >
-                                        {selectedTool.type === 'plant' && (
+                                        {selectedTool.type === 'plant' && layers.guides && (
                                             <div
-                                                className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed pointer-events-none"
+                                                className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed"
                                                 style={{
                                                     width: CELL_SIZE * 2,
                                                     height: CELL_SIZE * 2,
@@ -744,35 +689,231 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                             </div>
                         </div>
 
-                        <div className="absolute left-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
-                            {`Mode: ${activeMode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%${isMobile ? '  |  Quick Edit' : ''}`}
+                        <div className="absolute left-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm">
+                            {`Mode: ${mode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%`}
                         </div>
-
-                        <div className="absolute right-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
+                        <div className="absolute right-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm">
                             {`${(cursorWorld.x / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft, ${(cursorWorld.y / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft`}
                         </div>
                     </div>
 
                     <button
                         onClick={handleTrash}
-                        className={`floating-trash fixed bottom-24 md:bottom-8 right-6 md:right-8 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border-2 cursor-pointer print:hidden
-                        ${selectedTool ? 'bg-red-50 border-red-400 text-red-500 scale-110 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-400'}`}
+                        className={`floating-trash fixed bottom-8 right-[320px] z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border-2 cursor-pointer print:hidden ${selectedTool ? 'bg-red-50 border-red-400 text-red-500 scale-110 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-400'}`}
                         title="Cancel / Trash"
                     >
                         <Trash2 size={28} />
                     </button>
                 </main>
-            </div>
 
-            <div className="mobile-controls md:hidden border-t bg-white px-3 py-2 flex items-center gap-2 overflow-x-auto print:hidden">
-                <button onClick={() => setIsSidebarOpen(true)} className="p-3 rounded border border-gray-300 text-gray-700">Catalog</button>
-                <button onClick={handleUndo} disabled={currentHistoryIndex <= 0} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Undo size={18} /></button>
-                <button onClick={handleRedo} disabled={currentHistoryIndex >= history.length - 1} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Redo size={18} /></button>
-                <button onClick={() => setMode('pan')} className={`px-3 py-3 rounded border text-sm ${activeMode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-gray-300 text-gray-700'}`}><Hand size={14} className="inline mr-1" />Pan</button>
-                <button onClick={() => setMode('place')} className={`px-3 py-3 rounded border text-sm ${activeMode === 'place' ? 'bg-green-700 text-white border-green-700' : 'bg-white border-gray-300 text-gray-700'}`}><Grip size={14} className="inline mr-1" />Place</button>
-                <button onClick={fitToView} className="p-3 rounded border border-gray-300 text-gray-700"><LocateFixed size={18} /></button>
+                <aside className="right-panel w-[300px] bg-white border-l border-gray-200 p-4 overflow-y-auto print:hidden">
+                    <div className="mb-3 p-3 rounded border border-gray-200 bg-gray-50">
+                        <h3 className="font-semibold text-gray-800 mb-2">Selected Item</h3>
+                        <label className="flex items-center justify-between text-xs text-gray-700 mb-3 pb-2 border-b border-gray-200">
+                            <span>Safe Move Mode</span>
+                            <input
+                                type="checkbox"
+                                checked={safeMoveMode}
+                                onChange={(e) => setSafeMoveMode(e.target.checked)}
+                            />
+                        </label>
+                        {!selectedPlacedItem ? (
+                            <p className="text-xs text-gray-600">Click an item on the canvas to inspect and edit it.</p>
+                        ) : (
+                            <form
+                                key={selectedPlacedItem.id}
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const form = new FormData(e.currentTarget);
+                                    const nextWidth = selectedPlacedItem.type === 'structure'
+                                        ? Math.max(1, Math.min(50, Number(form.get('width')) || 1))
+                                        : undefined;
+                                    const nextLength = selectedPlacedItem.type === 'structure'
+                                        ? Math.max(1, Math.min(50, Number(form.get('length')) || 1))
+                                        : undefined;
+                                    const { w, h } = getItemPixelSize(selectedPlacedItem, {
+                                        width: nextWidth,
+                                        length: nextLength,
+                                    });
+                                    const maxX = Math.max(0, worldWidth - w);
+                                    const maxY = Math.max(0, worldHeight - h);
+                                    const patch = {
+                                        x: clamp(Number(form.get('xFeet')) * FOOT_PX, 0, maxX),
+                                        y: clamp(Number(form.get('yFeet')) * FOOT_PX, 0, maxY),
+                                    };
+                                    if (selectedPlacedItem.type === 'structure') {
+                                        patch.width = nextWidth;
+                                        patch.length = nextLength;
+                                    }
+                                    applyItemPatch(selectedPlacedItem.id, patch);
+                                }}
+                            >
+                                <div className="text-xs text-gray-600 mb-2">
+                                    {selectedPlacedItem.name} ({selectedPlacedItem.type})
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mb-2">
+                                    <label className="text-xs text-gray-600">
+                                        X (ft)
+                                        <input
+                                            name="xFeet"
+                                            type="number"
+                                            step="0.5"
+                                            min={0}
+                                            defaultValue={Number((selectedPlacedItem.x / FOOT_PX).toFixed(1))}
+                                            className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                        />
+                                    </label>
+                                    <label className="text-xs text-gray-600">
+                                        Y (ft)
+                                        <input
+                                            name="yFeet"
+                                            type="number"
+                                            step="0.5"
+                                            min={0}
+                                            defaultValue={Number((selectedPlacedItem.y / FOOT_PX).toFixed(1))}
+                                            className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                        />
+                                    </label>
+                                </div>
+                                {selectedPlacedItem.type === 'structure' && (
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        <label className="text-xs text-gray-600">
+                                            W (ft)
+                                            <input
+                                                name="width"
+                                                type="number"
+                                                min={1}
+                                                max={50}
+                                                defaultValue={selectedPlacedItem.width || 1}
+                                                className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                            />
+                                        </label>
+                                        <label className="text-xs text-gray-600">
+                                            L (ft)
+                                            <input
+                                                name="length"
+                                                type="number"
+                                                min={1}
+                                                max={50}
+                                                defaultValue={selectedPlacedItem.length || 1}
+                                                className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                            />
+                                        </label>
+                                    </div>
+                                )}
+                                <div className="flex gap-2">
+                                    <button
+                                        type="submit"
+                                        className="flex-1 px-2 py-1.5 text-xs rounded border border-blue-600 text-blue-700 bg-white hover:bg-blue-50"
+                                    >
+                                        Apply
+                                    </button>
+                                    {mode === 'move' && !selectedTool && (
+                                        <button
+                                            type="button"
+                                            onClick={() => pickUpItem(selectedPlacedItem)}
+                                            className="flex-1 px-2 py-1.5 text-xs rounded border border-amber-600 text-amber-700 bg-white hover:bg-amber-50"
+                                        >
+                                            Pick Up Selected
+                                        </button>
+                                    )}
+                                </div>
+                                {mode === 'move' && safeMoveMode && (
+                                    <p className="text-[11px] text-gray-500 mt-2">
+                                        Canvas double-click pickup is disabled in Safe Move Mode.
+                                    </p>
+                                )}
+                            </form>
+                        )}
+                    </div>
+
+                    <div className="flex border-b border-gray-200 mb-3">
+                        <button onClick={() => setRightTab('learn')} className={`flex-1 py-2 text-xs font-semibold ${rightTab === 'learn' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-500'}`}>Learn</button>
+                        <button onClick={() => setRightTab('layers')} className={`flex-1 py-2 text-xs font-semibold ${rightTab === 'layers' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-500'}`}>Layers</button>
+                        <button onClick={() => setRightTab('timeline')} className={`flex-1 py-2 text-xs font-semibold ${rightTab === 'timeline' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-500'}`}>Timeline</button>
+                    </div>
+
+                    {rightTab === 'learn' && (
+                        <>
+                            <h3 className="font-semibold text-gray-800 mb-2">Learn to Use</h3>
+                            <p className="text-xs text-gray-600 mb-4">Desktop-first planner workflow guidance.</p>
+                            <HelpCard title="1. Place Plants" body="Choose a plant in the left panel, then click on the canvas to place." />
+                            <HelpCard title="2. Resize Structures" body="Set width/length in Structures tab, then place on the canvas." />
+                            <HelpCard title="3. Move Items" body="Switch to Move mode, select an item, then use Pick Up Selected in the right panel." />
+                            <HelpCard title="4. Save & Print" body="Use Save for JSON export and Print for plan output." />
+                        </>
+                    )}
+
+                    {rightTab === 'layers' && (
+                        <>
+                            <h3 className="font-semibold text-gray-800 mb-2">Layers</h3>
+                            <p className="text-xs text-gray-600 mb-3">Control visibility and editability.</p>
+                            <LayerRow
+                                name="Grid"
+                                checked={layers.grid}
+                                onChange={(checked) => setLayers((prev) => ({ ...prev, grid: checked }))}
+                            />
+                            <LayerRow
+                                name="Structures"
+                                checked={layers.structures}
+                                onChange={(checked) => setLayers((prev) => ({ ...prev, structures: checked }))}
+                            />
+                            <LayerRow
+                                name="Plants"
+                                checked={layers.plants}
+                                onChange={(checked) => setLayers((prev) => ({ ...prev, plants: checked }))}
+                            />
+                            <LayerRow
+                                name="Selection Guides"
+                                checked={layers.guides}
+                                onChange={(checked) => setLayers((prev) => ({ ...prev, guides: checked }))}
+                            />
+                            {selectedTool && (
+                                <div className="mt-4 p-3 rounded border border-gray-200 bg-gray-50 text-xs">
+                                    <div className="font-semibold text-gray-700 mb-1">Inspector</div>
+                                    <div className="text-gray-600">Name: {selectedTool.name}</div>
+                                    <div className="text-gray-600">Type: {selectedTool.type}</div>
+                                    {selectedTool.type === 'structure' && (
+                                        <div className="text-gray-600">Size: {selectedTool.width}' x {selectedTool.length}'</div>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {rightTab === 'timeline' && (
+                        <>
+                            <h3 className="font-semibold text-gray-800 mb-2">Timeline</h3>
+                            <p className="text-xs text-gray-600 mb-3">Planning timeline placeholder for future crop scheduling features.</p>
+                            <HelpCard title="Current View" body="All Months" />
+                            <HelpCard title="Next Step" body="Timeline planning can be added as a separate feature module." />
+                        </>
+                    )}
+                </aside>
             </div>
         </div>
+    );
+}
+
+function HelpCard({ title, body }) {
+    return (
+        <div className="mb-3 border border-gray-200 rounded p-3 bg-gray-50">
+            <h4 className="text-sm font-semibold text-gray-800 mb-1">{title}</h4>
+            <p className="text-xs text-gray-600">{body}</p>
+        </div>
+    );
+}
+
+function LayerRow({ name, checked, onChange }) {
+    return (
+        <label className="flex items-center justify-between text-sm text-gray-700 py-2 border-b border-gray-100">
+            <span>{name}</span>
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange?.(e.target.checked)}
+            />
+        </label>
     );
 }
 
