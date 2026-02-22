@@ -109,6 +109,7 @@ export default function Sidebar({ onItemSelect, items = [] }) {
                                 >
                                     <div className="w-8 h-8 flex items-center justify-center text-2xl mb-1">{plant.icon}</div>
                                     <span className="text-xs font-medium text-gray-700">{plant.name}</span>
+                                    <span className="text-[10px] text-gray-500 mt-0.5">Spacing {plant.spacingInches}"</span>
                                 </button>
                             ))}
                         </div>

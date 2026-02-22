@@ -7,7 +7,6 @@ import {
     Plus,
     Redo,
     Save,
-    Trash2,
     Undo,
     Upload,
     BookOpen,
@@ -17,30 +16,24 @@ import {
 import Sidebar from './Sidebar';
 import { createPlannerInitialState, plannerActionTypes, plannerReducer } from '../features/planner/planReducer';
 import { parseGardenPlanText } from '../features/planner/planSchema';
-import { getPlantImage } from '../features/catalog/catalog';
+import {
+    getPlantById,
+    getPlantCompanions,
+    getPlantImage,
+    getPlantingWindow,
+    getPlantRelationship,
+    getPlantSpacingInches,
+} from '../features/catalog/catalog';
 
 const CELL_SIZE = 15;
 const CELLS_PER_FOOT = 2;
 const FOOT_PX = CELL_SIZE * CELLS_PER_FOOT;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 3;
+const INCHES_PER_FOOT = 12;
 
 const DIRT_PATTERN = `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%235D4037' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`;
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const PLANTING_WINDOWS = {
-    tomato: { start: 3, end: 5 },
-    pepper: { start: 3, end: 5 },
-    corn: { start: 3, end: 5 },
-    bean: { start: 4, end: 6 },
-    carrot: { start: 2, end: 8 },
-    lettuce: { start: 2, end: 5 },
-    onion: { start: 1, end: 4 },
-    spinach: { start: 1, end: 4 },
-    basil: { start: 4, end: 6 },
-    parsley: { start: 3, end: 6 },
-    marigold: { start: 3, end: 6 },
-    sunflower: { start: 3, end: 6 },
-};
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -57,6 +50,20 @@ function getItemPixelSize(item, overrides = {}) {
         };
     }
     return { w: CELL_SIZE, h: CELL_SIZE };
+}
+
+function distancePx(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt((dx * dx) + (dy * dy));
+}
+
+function centerOfPlant(item) {
+    return { x: item.x + (CELL_SIZE / 2), y: item.y + (CELL_SIZE / 2) };
+}
+
+function spacingPxFromPlantId(plantId) {
+    return (getPlantSpacingInches(plantId) / INCHES_PER_FOOT) * FOOT_PX;
 }
 
 export default function GardenPlanner({ width, length, initialItems = [], onNewGarden, onLoadGarden }) {
@@ -200,6 +207,57 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         };
     }, [selectedTool, cursorWorld, toolPixelSize, snapPx]);
 
+    const plantItems = useMemo(
+        () => items.filter((item) => item.type === 'plant'),
+        [items]
+    );
+
+    const placementInsights = useMemo(() => {
+        if (!selectedTool || selectedTool.type !== 'plant' || !ghostPos) {
+            return null;
+        }
+
+        const basePlantId = selectedTool.itemId || selectedTool.id;
+        const baseSpacingPx = spacingPxFromPlantId(basePlantId);
+        const baseCenter = { x: ghostPos.x + (CELL_SIZE / 2), y: ghostPos.y + (CELL_SIZE / 2) };
+        const neighbors = plantItems
+            .map((neighbor) => {
+                const neighborId = neighbor.itemId || neighbor.id;
+                const neighborSpacingPx = spacingPxFromPlantId(neighborId);
+                const distance = distancePx(baseCenter, centerOfPlant(neighbor));
+                const required = Math.max(baseSpacingPx, neighborSpacingPx);
+                return {
+                    id: neighbor.id,
+                    name: neighbor.name,
+                    relation: getPlantRelationship(basePlantId, neighborId),
+                    distancePx: distance,
+                    requiredPx: required,
+                    tooClose: distance < required,
+                };
+            })
+            .sort((a, b) => a.distancePx - b.distancePx);
+
+        const spacingViolations = neighbors.filter((neighbor) => neighbor.tooClose);
+        const avoidNeighbors = neighbors.filter(
+            (neighbor) => neighbor.relation === 'avoid' && neighbor.distancePx <= (3 * FOOT_PX)
+        );
+        const goodNeighbors = neighbors.filter(
+            (neighbor) => neighbor.relation === 'good' && neighbor.distancePx <= (3 * FOOT_PX)
+        );
+
+        return {
+            basePlantId,
+            baseSpacingPx,
+            spacingViolations,
+            nearby: neighbors.slice(0, 4),
+            status: spacingViolations.length > 0 || avoidNeighbors.length > 0
+                ? 'warning'
+                : goodNeighbors.length > 0
+                    ? 'good'
+                    : 'neutral',
+        };
+    }, [selectedTool, ghostPos, plantItems]);
+
     const placeSelectedAt = useCallback((worldPoint) => {
         if (!selectedTool) return false;
 
@@ -276,6 +334,54 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         [items, selectedItemId]
     );
 
+    const focusedPlantContext = useMemo(() => {
+        const activeFromTool = selectedTool?.type === 'plant' ? selectedTool : null;
+        const activeFromSelection = selectedPlacedItem?.type === 'plant' ? selectedPlacedItem : null;
+        const activePlant = activeFromTool || activeFromSelection;
+        if (!activePlant) return null;
+
+        const plantId = activePlant.itemId || activePlant.id;
+        const plantMeta = getPlantById(plantId);
+        if (!plantMeta) return null;
+        const companions = getPlantCompanions(plantId);
+
+        const center = activeFromTool && ghostPos
+            ? { x: ghostPos.x + (CELL_SIZE / 2), y: ghostPos.y + (CELL_SIZE / 2) }
+            : centerOfPlant(activePlant);
+
+        const spacingPx = spacingPxFromPlantId(plantId);
+        const nearby = plantItems
+            .filter((item) => !activeFromSelection || item.id !== activeFromSelection.id)
+            .map((item) => {
+                const neighborId = item.itemId || item.id;
+                const neighborSpacingPx = spacingPxFromPlantId(neighborId);
+                const distance = distancePx(center, centerOfPlant(item));
+                return {
+                    id: item.id,
+                    name: item.name,
+                    relation: getPlantRelationship(plantId, neighborId),
+                    distanceInches: Math.round((distance / FOOT_PX) * INCHES_PER_FOOT),
+                    tooClose: distance < Math.max(spacingPx, neighborSpacingPx),
+                };
+            })
+            .sort((a, b) => a.distanceInches - b.distanceInches)
+            .slice(0, 4);
+
+        return {
+            id: plantId,
+            name: plantMeta.name,
+            spacingInches: plantMeta.spacingInches,
+            goodNeighbors: companions.good,
+            avoidNeighbors: companions.avoid,
+            notes: plantMeta.notes,
+            sourceRefs: plantMeta.sourceRefs || [],
+            lastReviewed: plantMeta.lastReviewed,
+            regionScope: plantMeta.regionScope || 'US-general',
+            evidence: plantMeta.evidence || { spacing: 'low', neighbors: 'low', window: 'low' },
+            nearby,
+        };
+    }, [selectedTool, selectedPlacedItem, ghostPos, plantItems]);
+
     const applyItemPatch = useCallback((itemId, patch) => {
         const nextItems = items.map((item) => {
             if (item.id !== itemId) return item;
@@ -325,7 +431,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
     const timelineRows = useMemo(() => {
         return plantSummary.map((item) => {
-            const window = PLANTING_WINDOWS[item.id] || null;
+            const window = getPlantingWindow(item.id);
             const inWindow = window ? timelineMonth >= window.start && timelineMonth <= window.end : false;
             return {
                 ...item,
@@ -595,7 +701,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
             <style>{`
                 @media print {
                     @page { size: landscape; margin: 0.5cm; }
-                    header, aside, .floating-trash, .left-rail, .right-panel, .toolbar-row { display: none !important; }
+                    header, aside, .left-rail, .right-panel, .toolbar-row { display: none !important; }
                     main { box-shadow: none; margin: 0; padding: 0; overflow: visible; }
                 }
             `}</style>
@@ -874,12 +980,18 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                         )}
                                         {selectedTool.type === 'plant' && layers.guides && (
                                             <div
-                                                className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed"
+                                                className={`absolute rounded-full border-dashed ${
+                                                    placementInsights?.status === 'warning'
+                                                        ? 'border border-red-500/80 bg-red-200/20'
+                                                        : placementInsights?.status === 'good'
+                                                            ? 'border border-emerald-500/80 bg-emerald-200/20'
+                                                            : 'border border-green-400/50'
+                                                }`}
                                                 style={{
-                                                    width: CELL_SIZE * 2,
-                                                    height: CELL_SIZE * 2,
-                                                    left: -((CELL_SIZE * 2 - CELL_SIZE) / 2),
-                                                    top: -((CELL_SIZE * 2 - CELL_SIZE) / 2),
+                                                    width: clamp((placementInsights?.baseSpacingPx || (CELL_SIZE * 1.2)) * 2, CELL_SIZE * 2, FOOT_PX * 8),
+                                                    height: clamp((placementInsights?.baseSpacingPx || (CELL_SIZE * 1.2)) * 2, CELL_SIZE * 2, FOOT_PX * 8),
+                                                    left: -(clamp((placementInsights?.baseSpacingPx || (CELL_SIZE * 1.2)) * 2, CELL_SIZE * 2, FOOT_PX * 8) - CELL_SIZE) / 2,
+                                                    top: -(clamp((placementInsights?.baseSpacingPx || (CELL_SIZE * 1.2)) * 2, CELL_SIZE * 2, FOOT_PX * 8) - CELL_SIZE) / 2,
                                                 }}
                                             />
                                         )}
@@ -898,13 +1010,6 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     </div>
                     )}
 
-                    <button
-                        onClick={handleTrash}
-                        className={`floating-trash fixed bottom-8 right-[320px] z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border-2 cursor-pointer print:hidden ${(selectedTool || selectedItemId) ? 'bg-red-50 border-red-400 text-red-500 scale-110 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-400'}`}
-                        title={selectedTool || selectedItemId ? 'Delete selected (Del/Backspace)' : 'Select an item to delete'}
-                    >
-                        <Trash2 size={28} />
-                    </button>
                 </main>
 
                 <aside className="right-panel w-[300px] bg-white border-l border-gray-200 p-4 overflow-y-auto print:hidden">
@@ -1031,11 +1136,82 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                     {rightTab === 'learn' && (
                         <>
                             <h3 className="font-semibold text-gray-800 mb-2">Learn to Use</h3>
-                            <p className="text-xs text-gray-600 mb-4">Desktop-first planner workflow guidance.</p>
+                            <p className="text-xs text-gray-600 mb-4">Desktop-first planner workflow guidance with live plant intelligence.</p>
                             <HelpCard title="1. Place Plants" body="Choose a plant in the left panel, then click on the canvas to place." />
                             <HelpCard title="2. Resize Structures" body="Set width/length in Structures tab, then place on the canvas." />
-                            <HelpCard title="3. Move Items" body="Switch to Move mode, select an item, then use Pick Up Selected in the right panel." />
-                            <HelpCard title="4. Save & Print" body="Use Save for JSON export and Print for plan output." />
+                            <HelpCard title="3. Spacing Ring" body="Plant placement ring turns red when spacing or poor-neighbor guidance is violated." />
+                            <HelpCard title="4. Move Items" body="Switch to Move mode, then click an item to pick it up and reposition." />
+                            <HelpCard title="5. Save & Print" body="Use Save for JSON export and Print for plan output." />
+
+                            {focusedPlantContext && (
+                                <div className="mt-4 border border-gray-200 rounded p-3 bg-gray-50">
+                                    <h4 className="text-sm font-semibold text-gray-800 mb-2">
+                                        Plant Guidance: {focusedPlantContext.name}
+                                    </h4>
+                                    <div className="flex flex-wrap gap-1.5 mb-2">
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
+                                            Spacing: {focusedPlantContext.spacingInches}"
+                                        </span>
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
+                                            Scope: {focusedPlantContext.regionScope}
+                                        </span>
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
+                                            Confidence S/N/W: {focusedPlantContext.evidence.spacing}/{focusedPlantContext.evidence.neighbors}/{focusedPlantContext.evidence.window}
+                                        </span>
+                                    </div>
+                                    <div className="text-[11px] text-gray-600 mb-2">Last reviewed: {focusedPlantContext.lastReviewed || 'Not reviewed yet'}</div>
+                                    <p className="text-xs text-gray-600 mb-2">{focusedPlantContext.notes}</p>
+                                    <div className="text-xs text-gray-700">
+                                        Good neighbors: {focusedPlantContext.goodNeighbors.length > 0 ? focusedPlantContext.goodNeighbors.join(', ') : 'none listed'}
+                                    </div>
+                                    <div className="text-xs text-gray-700 mb-2">
+                                        Avoid near: {focusedPlantContext.avoidNeighbors.length > 0 ? focusedPlantContext.avoidNeighbors.join(', ') : 'none listed'}
+                                    </div>
+                                    <details className="text-xs text-gray-600">
+                                        <summary className="cursor-pointer select-none">Sources ({focusedPlantContext.sourceRefs.length})</summary>
+                                        {focusedPlantContext.sourceRefs.length === 0 ? (
+                                            <div className="mt-1">Not populated yet.</div>
+                                        ) : (
+                                            <ul className="mt-1 mb-2 space-y-1">
+                                                {focusedPlantContext.sourceRefs.map((ref, idx) => (
+                                                    <li key={`${focusedPlantContext.id}-src-${idx}`}>
+                                                        <a href={ref.url} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                                                            {ref.title || ref.url}
+                                                        </a>
+                                                        <span className="text-gray-500"> ({ref.publisher || 'source'})</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </details>
+                                    <details className="text-xs text-gray-600 mt-1">
+                                        <summary className="cursor-pointer select-none">Nearby plants ({focusedPlantContext.nearby.length})</summary>
+                                        {focusedPlantContext.nearby.length === 0 ? (
+                                            <div className="mt-1">No nearby plants.</div>
+                                        ) : (
+                                            <ul className="mt-1 space-y-1">
+                                                {focusedPlantContext.nearby.map((neighbor) => (
+                                                    <li key={neighbor.id} className="flex justify-between">
+                                                        <span>
+                                                            {neighbor.name}
+                                                            {neighbor.relation === 'good' ? ' (good)' : ''}
+                                                            {neighbor.relation === 'avoid' ? ' (avoid)' : ''}
+                                                            {neighbor.tooClose ? ' - too close' : ''}
+                                                        </span>
+                                                        <span>{neighbor.distanceInches}"</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </details>
+                                </div>
+                            )}
+
+                            {placementInsights?.status === 'warning' && (
+                                <div className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                                    Placement warning: the current ghost location violates spacing or companion guidance.
+                                </div>
+                            )}
                         </>
                     )}
 
