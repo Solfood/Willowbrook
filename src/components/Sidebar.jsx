@@ -6,6 +6,13 @@ import { getPlantImage, PLANT_CATEGORIES, STRUCTURES } from '../features/catalog
 export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
     const [tab, setTab] = useState('plants'); // 'plants' | 'structures' | 'list'
     const [subCat, setSubCat] = useState('vegetables');
+    const [structureSizes, setStructureSizes] = useState(() => {
+        const byId = {};
+        STRUCTURES.forEach((structure) => {
+            byId[structure.id] = { width: structure.width, length: structure.length };
+        });
+        return byId;
+    });
 
     // Calculate Shopping List
     const shoppingList = useMemo(() => {
@@ -19,6 +26,17 @@ export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
         });
         return Object.values(list).sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
     }, [items]);
+
+    const updateStructureSize = (id, key, delta) => {
+        setStructureSizes((prev) => {
+            const current = prev[id] || { width: 1, length: 1 };
+            const next = {
+                ...current,
+                [key]: Math.max(1, Math.min(50, current[key] + delta)),
+            };
+            return { ...prev, [id]: next };
+        });
+    };
 
     return (
         <>
@@ -108,19 +126,58 @@ export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
                     {tab === 'structures' && (
                         <div className="space-y-3">
                             {STRUCTURES.map(item => (
+                                (() => {
+                                    const size = structureSizes[item.id] || { width: item.width, length: item.length };
+                                    return (
                                 <div
                                     key={item.id}
                                     className="p-3 rounded border border-gray-200 hover:border-amber-300 hover:bg-amber-50 cursor-pointer"
-                                    onClick={() => { onItemSelect(item); onClose(); }}
+                                    onClick={() => { onItemSelect({ ...item, width: size.width, length: size.length }); onClose(); }}
                                 >
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="font-medium text-gray-800 text-sm">{item.name}</span>
                                         <Box size={14} className="text-amber-600" />
                                     </div>
-                                    <div className="text-xs text-gray-500">
-                                        Dimensions: {item.width}' x {item.length}'
+                                    <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-gray-500">W</span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); updateStructureSize(item.id, 'width', -1); }}
+                                                className="px-2 py-1 border rounded text-gray-700 bg-white"
+                                            >
+                                                -
+                                            </button>
+                                            <span className="min-w-[28px] text-center font-semibold text-gray-700">{size.width}'</span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); updateStructureSize(item.id, 'width', 1); }}
+                                                className="px-2 py-1 border rounded text-gray-700 bg-white"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-gray-500">L</span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); updateStructureSize(item.id, 'length', -1); }}
+                                                className="px-2 py-1 border rounded text-gray-700 bg-white"
+                                            >
+                                                -
+                                            </button>
+                                            <span className="min-w-[28px] text-center font-semibold text-gray-700">{size.length}'</span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); updateStructureSize(item.id, 'length', 1); }}
+                                                className="px-2 py-1 border rounded text-gray-700 bg-white"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-2">
+                                        Tap card to place ({size.width}' x {size.length}')
                                     </div>
                                 </div>
+                                    );
+                                })()
                             ))}
                         </div>
                     )}

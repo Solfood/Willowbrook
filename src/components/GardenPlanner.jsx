@@ -76,6 +76,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         velocity: { x: 0, y: 0 },
         momentumFrame: null,
     });
+    const longPressRef = useRef({ timer: null });
 
     const commitItems = useCallback((nextItems) => {
         dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: nextItems });
@@ -83,6 +84,13 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
     const clearSelection = useCallback(() => {
         setSelectedTool(null);
+    }, []);
+
+    const clearLongPress = useCallback(() => {
+        if (longPressRef.current.timer) {
+            clearTimeout(longPressRef.current.timer);
+            longPressRef.current.timer = null;
+        }
     }, []);
 
     const toWorld = useCallback((clientX, clientY, activeCamera = camera) => {
@@ -195,7 +203,13 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         };
 
         commitItems([...items, nextItem]);
-        clearSelection();
+
+        // Keep newly selected plants in hand for rapid multi-placement on mobile/desktop.
+        if (selectedTool.isNew && selectedTool.type === 'plant') {
+            setSelectedTool((prev) => (prev ? { ...prev, id: Date.now() } : prev));
+        } else {
+            clearSelection();
+        }
         return true;
     }, [selectedTool, toolPixelSize, worldWidth, worldHeight, commitItems, items, clearSelection]);
 
@@ -543,6 +557,10 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         return () => stopMomentum();
     }, [stopMomentum]);
 
+    useEffect(() => {
+        return () => clearLongPress();
+    }, [clearLongPress]);
+
     const orderedItems = useMemo(() => {
         return [...items].sort((a, b) => {
             if (a.type === b.type) return 0;
@@ -652,7 +670,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                     <div
                                         key={item.id}
                                         className={`group/item ${selectedTool ? 'pointer-events-none' : ''}`}
-                                        onMouseDown={(e) => {
+                                        onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             if (mode === 'place' && !selectedTool) {
                                                 pickUpItem(item);
@@ -661,9 +679,15 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                         onTouchStart={(e) => {
                                             e.stopPropagation();
                                             if (mode === 'place' && !selectedTool) {
-                                                pickUpItem(item);
+                                                clearLongPress();
+                                                longPressRef.current.timer = setTimeout(() => {
+                                                    pickUpItem(item);
+                                                    longPressRef.current.timer = null;
+                                                }, 350);
                                             }
                                         }}
+                                        onTouchEnd={clearLongPress}
+                                        onTouchCancel={clearLongPress}
                                         style={{
                                             position: 'absolute',
                                             left: item.x,
@@ -708,7 +732,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         </div>
 
                         <div className="absolute left-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
-                            {`Mode: ${mode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%`}
+                            {`Mode: ${mode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%  |  Move: dbl-click/long-press`}
                         </div>
 
                         <div className="absolute right-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm print:hidden">
