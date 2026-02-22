@@ -79,7 +79,6 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         plants: true,
         guides: true,
     });
-    const [safeMoveMode, setSafeMoveMode] = useState(true);
     const [snapFeet, setSnapFeet] = useState(0.5);
     const [timelineMonth, setTimelineMonth] = useState(new Date().getMonth());
     const [notesText, setNotesText] = useState(() => {
@@ -430,7 +429,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 return;
             }
 
-            if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedTool || selectedItemId)) {
+            const isDeleteKey = e.key === 'Delete'
+                || e.key === 'Backspace'
+                || e.code === 'Delete'
+                || e.code === 'Backspace';
+            if (isDeleteKey && (selectedTool || selectedItemId)) {
                 const target = e.target;
                 if (target instanceof HTMLElement) {
                     const tag = target.tagName.toLowerCase();
@@ -751,7 +754,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         onMouseUp={onMouseUp}
                         onMouseLeave={onMouseUp}
                         onWheel={onWheel}
-                        style={{ userSelect: 'none' }}
+                        style={{ userSelect: 'none', cursor: selectedTool ? 'none' : undefined }}
                     >
                         <div className="absolute left-8 top-0 right-0 h-8 border-b border-gray-300 bg-gray-100 z-20 overflow-hidden pointer-events-none">
                             <div
@@ -822,22 +825,18 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                         }}
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            if (mode === 'move' && !selectedTool && !safeMoveMode) {
+                                            if (mode === 'move' && !selectedTool) {
                                                 pickUpItem(item);
                                                 return;
                                             }
                                             setSelectedItemId(item.id);
-                                        }}
-                                        onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (mode === 'move' && !selectedTool && !safeMoveMode) pickUpItem(item);
                                         }}
                                         style={{
                                             position: 'absolute',
                                             left: item.x,
                                             top: item.y,
                                             zIndex: item.type === 'plant' ? 10 : 1,
-                                            cursor: mode === 'move' && !safeMoveMode ? 'grab' : 'default',
+                                            cursor: mode === 'move' ? 'grab' : 'default',
                                         }}
                                     >
                                         <RenderItemContent item={item} />
@@ -861,6 +860,18 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                             zIndex: 50,
                                         }}
                                     >
+                                        {mode === 'move' && (
+                                            <div
+                                                className="absolute text-gray-700/90"
+                                                style={{
+                                                    left: toolPixelSize.w / 2,
+                                                    top: toolPixelSize.h / 2,
+                                                    transform: 'translate(-50%, -50%)',
+                                                }}
+                                            >
+                                                <Hand size={14} />
+                                            </div>
+                                        )}
                                         {selectedTool.type === 'plant' && layers.guides && (
                                             <div
                                                 className="absolute -inset-2 border border-green-400/50 rounded-full border-dashed"
@@ -878,11 +889,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                             </div>
                         </div>
 
-                        <div className="absolute left-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm">
+                        <div className="absolute left-10 bottom-2 z-30 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm pointer-events-none">
                             {`Mode: ${mode.toUpperCase()}  |  Zoom: ${Math.round(camera.scale * 100)}%`}
                         </div>
-                        <div className="absolute right-3 bottom-3 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm">
-                            {`${(cursorWorld.x / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft, ${(cursorWorld.y / (CELL_SIZE * CELLS_PER_FOOT)).toFixed(1)}ft`}
+                        <div className="absolute right-10 bottom-2 z-30 text-[11px] bg-white/95 border border-gray-300 rounded px-2 py-1 text-gray-700 shadow-sm pointer-events-none">
+                            {`${clamp(cursorWorld.x / (CELL_SIZE * CELLS_PER_FOOT), 0, width).toFixed(1)}ft, ${clamp(cursorWorld.y / (CELL_SIZE * CELLS_PER_FOOT), 0, length).toFixed(1)}ft`}
                         </div>
                     </div>
                     )}
@@ -899,14 +910,6 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 <aside className="right-panel w-[300px] bg-white border-l border-gray-200 p-4 overflow-y-auto print:hidden">
                     <div className="mb-3 p-3 rounded border border-gray-200 bg-gray-50">
                         <h3 className="font-semibold text-gray-800 mb-2">Selected Item</h3>
-                        <label className="flex items-center justify-between text-xs text-gray-700 mb-3 pb-2 border-b border-gray-200">
-                            <span>Safe Move Mode</span>
-                            <input
-                                type="checkbox"
-                                checked={safeMoveMode}
-                                onChange={(e) => setSafeMoveMode(e.target.checked)}
-                            />
-                        </label>
                         {!selectedPlacedItem ? (
                             <p className="text-xs text-gray-600">Click an item on the canvas to inspect and edit it.</p>
                         ) : (
@@ -1007,12 +1010,14 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                             Pick Up Selected
                                         </button>
                                     )}
+                                    <button
+                                        type="button"
+                                        onClick={handleTrash}
+                                        className="flex-1 px-2 py-1.5 text-xs rounded border border-red-600 text-red-700 bg-white hover:bg-red-50"
+                                    >
+                                        Delete
+                                    </button>
                                 </div>
-                                {mode === 'move' && safeMoveMode && (
-                                    <p className="text-[11px] text-gray-500 mt-2">
-                                        Canvas double-click pickup is disabled in Safe Move Mode.
-                                    </p>
-                                )}
                             </form>
                         )}
                     </div>
