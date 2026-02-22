@@ -727,7 +727,8 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 </main>
             </div>
 
-            <div className="mobile-controls md:hidden border-t bg-white px-3 py-2 flex items-center justify-between gap-2 print:hidden">
+            <div className="mobile-controls md:hidden border-t bg-white px-3 py-2 flex items-center gap-2 overflow-x-auto print:hidden">
+                <button onClick={() => setIsSidebarOpen(true)} className="p-3 rounded border border-gray-300 text-gray-700">Catalog</button>
                 <button onClick={handleUndo} disabled={currentHistoryIndex <= 0} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Undo size={18} /></button>
                 <button onClick={handleRedo} disabled={currentHistoryIndex >= history.length - 1} className="p-3 rounded border border-gray-300 disabled:opacity-30 text-gray-700"><Redo size={18} /></button>
                 <button onClick={() => setMode('pan')} className={`px-3 py-3 rounded border text-sm ${mode === 'pan' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-gray-300 text-gray-700'}`}><Hand size={14} className="inline mr-1" />Pan</button>

@@ -25,7 +25,7 @@ export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
             {/* Mobile Overlay */}
             {isOpen && (
                 <div
-                    className="fixed inset-0 bg-black/50 z-20 md:hidden"
+                    className="fixed inset-0 bg-black/45 z-20 md:hidden"
                     onClick={onClose}
                 />
             )}
@@ -33,43 +33,48 @@ export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
             {/* Sidebar Container */}
             <aside className={`
                 bg-white shadow-lg flex flex-col z-30 print:hidden
-                fixed md:static inset-y-0 left-0 w-64 transform transition-transform duration-300 ease-in-out
-                ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                fixed md:static transition-transform duration-300 ease-in-out
+                md:inset-y-0 md:left-0 md:w-64
+                inset-x-0 bottom-0 top-24 rounded-t-2xl md:rounded-none
+                ${isOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:-translate-x-full md:translate-y-0'}
             `}>
-                <div className="flex border-b relative">
-                    <button
-                        onClick={() => setTab('plants')}
-                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-1 ${tab === 'plants' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                        <Leaf size={16} /> Plants
-                    </button>
-                    <button
-                        onClick={() => setTab('structures')}
-                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-1 ${tab === 'structures' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                        <Box size={16} /> Structures
-                    </button>
-                    <button
-                        onClick={() => setTab('list')}
-                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-1 ${tab === 'list' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                        <ClipboardList size={16} /> List
-                    </button>
-
-                    {/* Mobile Close Button */}
+                <div className="flex md:hidden items-center justify-between px-4 pt-3 pb-2 border-b">
+                    <h2 className="text-sm font-semibold text-gray-800">Catalog</h2>
                     <button
                         onClick={onClose}
-                        className="absolute right-0 top-0 p-2 md:hidden text-gray-500"
+                        className="p-2 text-gray-500 rounded hover:bg-gray-100"
+                        aria-label="Close catalog"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex border-b">
+                    <button
+                        onClick={() => setTab('plants')}
+                        className={`flex-1 py-3 text-xs md:text-sm font-medium flex items-center justify-center gap-1 ${tab === 'plants' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Leaf size={16} /> Plants
+                    </button>
+                    <button
+                        onClick={() => setTab('structures')}
+                        className={`flex-1 py-3 text-xs md:text-sm font-medium flex items-center justify-center gap-1 ${tab === 'structures' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Box size={16} /> Structures
+                    </button>
+                    <button
+                        onClick={() => setTab('list')}
+                        className={`flex-1 py-3 text-xs md:text-sm font-medium flex items-center justify-center gap-1 ${tab === 'list' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <ClipboardList size={16} /> List
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 pb-28 md:pb-4">
                     {tab === 'plants' && (
                         <>
                             {/* Categories */}
-                            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-thin">
+                            <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
                                 {Object.keys(PLANT_CATEGORIES).map(cat => (
                                     <button
                                         key={cat}
@@ -82,7 +87,7 @@ export default function Sidebar({ onItemSelect, items = [], isOpen, onClose }) {
                             </div>
 
                             {/* Grid */}
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
                                 {PLANT_CATEGORIES[subCat].map(plant => (
                                     <div
                                         key={plant.id}
