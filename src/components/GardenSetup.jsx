@@ -5,7 +5,6 @@ const ZONE_OPTIONS = [
     '1a', '1b', '2a', '2b', '3a', '3b', '4a', '4b', '5a', '5b', '6a', '6b',
     '7a', '7b', '8a', '8b', '9a', '9b', '10a', '10b', '11a', '11b', '12a', '12b', '13a', '13b',
 ];
-const CONTIGUOUS_US_ZONE_BANDS = [3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function GardenSetup({ onComplete }) {
     const [width, setWidth] = useState(10);
@@ -138,7 +137,7 @@ export default function GardenSetup({ onComplete }) {
                             ))}
                         </select>
                         <p className="text-xs text-gray-500 mt-1">
-                            Used for planting-window guidance in Learn/Timeline. Map is an approximate visual guide.
+                            Used for planting-window guidance in Learn/Timeline.
                         </p>
                     </div>
 
@@ -154,77 +153,18 @@ export default function GardenSetup({ onComplete }) {
     );
 }
 
-function ZoneMiniMap({ zone, onSelectZone }) {
-    const zoneText = String(zone || '7a').toLowerCase();
-    const suffix = zoneText.endsWith('b') ? 'b' : 'a';
-    const zoneNumber = Number(zoneText.replace(/[^\d]/g, '')) || 7;
-    const palette = {
-        3: '#c7d2fe',
-        4: '#bfdbfe',
-        5: '#a5f3fc',
-        6: '#bbf7d0',
-        7: '#d9f99d',
-        8: '#fde68a',
-        9: '#fdba74',
-        10: '#fda4af',
-    };
-    const usShapePath = 'M16 92 L24 70 L36 64 L46 56 L64 52 L78 46 L94 48 L112 44 L126 40 L142 44 L156 40 L170 44 L184 38 L198 44 L214 42 L226 50 L238 50 L252 54 L266 54 L282 62 L292 74 L304 82 L300 92 L286 94 L278 102 L270 104 L260 112 L250 116 L238 116 L230 124 L220 126 L212 122 L204 120 L194 122 L182 126 L170 128 L160 132 L146 132 L132 128 L120 132 L108 130 L98 126 L86 126 L74 122 L64 114 L54 110 L42 108 L30 100 L20 98 Z';
-
+function ZoneMiniMap() {
     return (
-        <div className="border border-gray-200 rounded-lg bg-white p-2 mb-2">
-            <div className="text-[11px] text-gray-600 mb-2">Approximate contiguous U.S. hardiness bands (north to south)</div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-1">
-                <svg viewBox="0 0 320 150" className="w-full h-36" role="img" aria-label="Approximate USDA zones map">
-                    <defs>
-                        <clipPath id="us-shape-clip">
-                            <path d={usShapePath} />
-                        </clipPath>
-                    </defs>
-
-                    <rect x="8" y="30" width="304" height="108" rx="10" fill="#f8fafc" />
-
-                    {CONTIGUOUS_US_ZONE_BANDS.map((num, idx) => {
-                        const isSelected = num === zoneNumber;
-                        return (
-                            <g key={`band-${num}`}>
-                                <rect
-                                    x="10"
-                                    y={32 + (idx * 13)}
-                                    width="300"
-                                    height="13"
-                                    clipPath="url(#us-shape-clip)"
-                                    fill={isSelected ? '#16a34a' : palette[num]}
-                                    opacity={isSelected ? 0.95 : 0.9}
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => onSelectZone?.(`${num}${suffix}`)}
-                                />
-                                <text x="302" y={41 + (idx * 13)} textAnchor="end" fontSize="8" fill="#334155">
-                                    Z{num}
-                                </text>
-                            </g>
-                        );
-                    })}
-
-                    <path d={usShapePath} fill="none" stroke="#475569" strokeWidth="1.5" />
-                    <text x="12" y="20" fontSize="10" fill="#475569">Click a band to set zone</text>
-                    <text x="12" y="145" fontSize="10" fill="#334155">Selected: {zoneText.toUpperCase()}</text>
-                </svg>
-            </div>
-
-            <div className="flex flex-wrap gap-1 mt-1">
-                {CONTIGUOUS_US_ZONE_BANDS.map((num) => {
-                    const selected = num === zoneNumber;
-                    return (
-                        <button
-                            key={`zone-chip-${num}`}
-                            type="button"
-                            onClick={() => onSelectZone?.(`${num}${suffix}`)}
-                            className={`text-[10px] px-2 py-0.5 rounded border ${selected ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {num}{suffix.toUpperCase()}
-                        </button>
-                    );
-                })}
+        <div className="border border-gray-200 rounded-lg bg-white p-1 mb-2">
+            <img
+                src="https://planthardiness.ars.usda.gov/system/files/National_Map_FZ_8x11_HS_150.png"
+                alt="USDA Plant Hardiness Zone Map (reference)"
+                className="w-full rounded border border-slate-200"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+            />
+            <div className="text-[11px] text-gray-600 mt-1 px-1">
+                USDA static reference map. Use ZIP Auto-Set or dropdown for selection.
             </div>
         </div>
     );
