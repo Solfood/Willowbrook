@@ -10,6 +10,11 @@ function isPositiveFiniteNumber(value) {
     return isFiniteNumber(value) && value > 0;
 }
 
+function isValidZone(value) {
+    if (typeof value !== 'string') return false;
+    return /^[1-9][0-9]?[ab]$/i.test(value.trim());
+}
+
 function isValidId(value) {
     return (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'string';
 }
@@ -84,6 +89,13 @@ export function parseGardenPlanText(jsonText) {
         };
     }
 
+    if (parsed.zone !== undefined && !isValidZone(parsed.zone)) {
+        return {
+            ok: false,
+            error: 'Plan zone must be a USDA-style value like "7a" or "8b".',
+        };
+    }
+
     for (let i = 0; i < parsed.items.length; i += 1) {
         const error = validateItem(parsed.items[i], i);
         if (error) {
@@ -100,6 +112,7 @@ export function parseGardenPlanText(jsonText) {
             schemaVersion: parsed.schemaVersion ?? 1,
             width: parsed.width,
             length: parsed.length,
+            zone: parsed.zone ? parsed.zone.toLowerCase() : '7a',
             items: parsed.items,
         },
     };

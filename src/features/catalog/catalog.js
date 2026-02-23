@@ -28,8 +28,29 @@ export function getPlantSpacingInches(id) {
     return getPlantById(id)?.spacingInches ?? 12;
 }
 
-export function getPlantingWindow(id) {
-    return getPlantById(id)?.plantingWindow ?? null;
+function clampMonth(month) {
+    return Math.max(0, Math.min(11, month));
+}
+
+function getZoneNumber(zone) {
+    const value = String(zone || '').trim().toLowerCase();
+    const match = value.match(/^([1-9][0-9]?)[ab]$/);
+    if (!match) return 7;
+    return Number(match[1]);
+}
+
+export function getPlantingWindow(id, zone = '7a') {
+    const base = getPlantById(id)?.plantingWindow ?? null;
+    if (!base) return null;
+
+    // Shift by broad climate band; colder zones plant later, warmer zones earlier.
+    const zoneNumber = getZoneNumber(zone);
+    const monthShift = Math.round((7 - zoneNumber) / 2);
+
+    return {
+        start: clampMonth(base.start + monthShift),
+        end: clampMonth(base.end + monthShift),
+    };
 }
 
 export function getPlantCompanions(id) {

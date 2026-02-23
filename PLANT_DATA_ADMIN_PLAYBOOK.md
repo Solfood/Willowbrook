@@ -114,6 +114,7 @@ Future assistant prompt guardrail:
 - Rich plant metadata can clutter the Learn panel quickly; default state should show compact chips and summaries, with `details` expanders for sources and nearby diagnostics.
 - Spacing guidance is substantially stronger than companion guidance for most home-garden datasets; keep companion confidence conservative unless direct extension-backed evidence is available.
 - Region scope needs to be visible in UI whenever a planting window is shown to avoid overclaiming universality.
+- USDA zone should be captured at setup and passed through save/load state, then used by planting-window algorithms; otherwise `W` confidence is artificially inflated by generic timing.
 
 ## Roadmap (Recommended)
 1. Add provenance + evidence fields in code and UI.

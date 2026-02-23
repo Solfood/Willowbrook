@@ -4,10 +4,11 @@ import { Sprout } from 'lucide-react';
 export default function GardenSetup({ onComplete }) {
     const [width, setWidth] = useState(10);
     const [length, setLength] = useState(10);
+    const [zone, setZone] = useState('7a');
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onComplete({ width: Number(width), length: Number(length) });
+        onComplete({ width: Number(width), length: Number(length), zone });
     };
 
     return (
@@ -44,6 +45,26 @@ export default function GardenSetup({ onComplete }) {
                             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition"
                             required
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">USDA Zone</label>
+                        <select
+                            value={zone}
+                            onChange={(e) => setZone(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition bg-white"
+                            required
+                        >
+                            {[
+                                '3a', '3b', '4a', '4b', '5a', '5b', '6a', '6b',
+                                '7a', '7b', '8a', '8b', '9a', '9b', '10a', '10b',
+                            ].map((z) => (
+                                <option key={z} value={z}>{z.toUpperCase()}</option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Used for planting-window guidance in Learn/Timeline.
+                        </p>
                     </div>
 
                     <button

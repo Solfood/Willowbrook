@@ -95,6 +95,7 @@ test('parseGardenPlanText accepts valid plan', () => {
         schemaVersion: 1,
         width: 10,
         length: 12,
+        zone: '8b',
         items: [{ id: 1, type: 'plant', name: 'Tomato', x: 0, y: 0, itemId: 'tomato' }],
     };
 
@@ -102,7 +103,21 @@ test('parseGardenPlanText accepts valid plan', () => {
     assert.equal(result.ok, true);
     assert.equal(result.plan.width, 10);
     assert.equal(result.plan.length, 12);
+    assert.equal(result.plan.zone, '8b');
     assert.equal(result.plan.items.length, 1);
+});
+
+test('parseGardenPlanText defaults zone when missing', () => {
+    const plan = {
+        schemaVersion: 1,
+        width: 10,
+        length: 12,
+        items: [{ id: 1, type: 'plant', name: 'Tomato', x: 0, y: 0, itemId: 'tomato' }],
+    };
+
+    const result = parseGardenPlanText(JSON.stringify(plan));
+    assert.equal(result.ok, true);
+    assert.equal(result.plan.zone, '7a');
 });
 
 test('parseGardenPlanText rejects missing dimensions', () => {
@@ -121,4 +136,17 @@ test('parseGardenPlanText rejects malformed structure item', () => {
     const result = parseGardenPlanText(JSON.stringify(badPlan));
     assert.equal(result.ok, false);
     assert.match(result.error, /positive numeric width/);
+});
+
+test('parseGardenPlanText rejects invalid zone', () => {
+    const badPlan = {
+        width: 10,
+        length: 10,
+        zone: 'north',
+        items: [],
+    };
+
+    const result = parseGardenPlanText(JSON.stringify(badPlan));
+    assert.equal(result.ok, false);
+    assert.match(result.error, /USDA-style/);
 });

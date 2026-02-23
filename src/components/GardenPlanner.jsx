@@ -66,7 +66,7 @@ function spacingPxFromPlantId(plantId) {
     return (getPlantSpacingInches(plantId) / INCHES_PER_FOOT) * FOOT_PX;
 }
 
-export default function GardenPlanner({ width, length, initialItems = [], onNewGarden, onLoadGarden }) {
+export default function GardenPlanner({ width, length, zone = '7a', initialItems = [], onNewGarden, onLoadGarden }) {
     const worldWidth = width * CELLS_PER_FOOT * CELL_SIZE;
     const worldHeight = length * CELLS_PER_FOOT * CELL_SIZE;
 
@@ -435,7 +435,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
     const timelineRows = useMemo(() => {
         return plantSummary.map((item) => {
-            const window = getPlantingWindow(item.id);
+            const window = getPlantingWindow(item.id, zone);
             const inWindow = window ? timelineMonth >= window.start && timelineMonth <= window.end : false;
             return {
                 ...item,
@@ -443,10 +443,10 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 inWindow,
             };
         });
-    }, [plantSummary, timelineMonth]);
+    }, [plantSummary, timelineMonth, zone]);
 
     const handleSave = useCallback(async () => {
-        const data = { schemaVersion: 1, width, length, items };
+        const data = { schemaVersion: 1, width, length, zone, items };
         const jsonString = JSON.stringify(data, null, 2);
 
         try {
@@ -478,7 +478,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         link.download = `${filename}.json`;
         link.click();
         URL.revokeObjectURL(url);
-    }, [width, length, items]);
+    }, [width, length, zone, items]);
 
     const handleLoad = useCallback((e) => {
         const file = e.target.files[0];
@@ -494,16 +494,17 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                 return;
             }
 
-            if (result.plan.width !== width || result.plan.length !== length) {
+            if (result.plan.width !== width || result.plan.length !== length || result.plan.zone !== zone) {
                 if (typeof onLoadGarden === 'function') {
                     onLoadGarden({
                         width: result.plan.width,
                         length: result.plan.length,
+                        zone: result.plan.zone,
                         items: result.plan.items,
                     });
                     return;
                 }
-                alert('Loaded plan dimensions do not match current garden.');
+                alert('Loaded plan settings do not match current garden.');
                 return;
             }
 
@@ -513,7 +514,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
         reader.readAsText(file);
         e.target.value = '';
-    }, [width, length, onLoadGarden, clearSelection]);
+    }, [width, length, zone, onLoadGarden, clearSelection]);
 
     useEffect(() => {
         const onKeyDown = (e) => {
@@ -1172,6 +1173,9 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                             Scope: {focusedPlantContext.regionScope}
                                         </span>
                                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
+                                            Zone: {String(zone).toUpperCase()}
+                                        </span>
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
                                             Confidence S/N/W: {focusedPlantContext.evidence.spacing}/{focusedPlantContext.evidence.neighbors}/{focusedPlantContext.evidence.window}
                                         </span>
                                     </div>
@@ -1279,6 +1283,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         <>
                             <h3 className="font-semibold text-gray-800 mb-2">Timeline</h3>
                             <p className="text-xs text-gray-600 mb-3">Compare your current plants against suggested planting windows.</p>
+                            <div className="text-[11px] text-gray-600 mb-2">USDA zone context: {String(zone).toUpperCase()}</div>
                             <label className="text-xs text-gray-600 block mb-2">
                                 Month
                                 <select

@@ -8,7 +8,7 @@ function App() {
   if (!garden) {
     return (
       <GardenSetup
-        onComplete={({ width, length }) => setGarden({ width, length, items: [], sessionId: Date.now() })}
+        onComplete={({ width, length, zone }) => setGarden({ width, length, zone, items: [], sessionId: Date.now() })}
       />
     );
   }
@@ -18,10 +18,11 @@ function App() {
       key={garden.sessionId}
       width={garden.width}
       length={garden.length}
+      zone={garden.zone}
       initialItems={garden.items}
       onNewGarden={() => setGarden(null)}
-      onLoadGarden={({ width, length, items }) => {
-        setGarden({ width, length, items, sessionId: Date.now() });
+      onLoadGarden={({ width, length, zone, items }) => {
+        setGarden({ width, length, zone, items, sessionId: Date.now() });
       }}
     />
   );
