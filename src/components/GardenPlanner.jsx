@@ -653,6 +653,11 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
         }
     };
 
+    const onMouseLeaveViewport = () => {
+        // Stop active drag when leaving canvas, but do not clear selection or place items.
+        mouseDragRef.current.active = false;
+    };
+
     const onWheel = (e) => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.08 : 0.92;
@@ -858,7 +863,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                         onMouseDown={onMouseDown}
                         onMouseMove={onMouseMove}
                         onMouseUp={onMouseUp}
-                        onMouseLeave={onMouseUp}
+                        onMouseLeave={onMouseLeaveViewport}
                         onWheel={onWheel}
                         style={{ userSelect: 'none', cursor: selectedTool ? 'none' : undefined }}
                     >
