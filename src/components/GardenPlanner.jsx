@@ -392,10 +392,14 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
 
     const handleEnterMoveMode = useCallback(() => {
         setMode('move');
+        // If a brand-new placement tool is active, clear it so move mode does not place items.
+        if (selectedTool?.isNew) {
+            clearSelection();
+        }
         if (selectedPlacedItem && !selectedTool) {
             pickUpItem(selectedPlacedItem);
         }
-    }, [selectedPlacedItem, selectedTool, pickUpItem]);
+    }, [selectedPlacedItem, selectedTool, pickUpItem, clearSelection]);
 
     const plantSummary = useMemo(() => {
         const byName = {};
