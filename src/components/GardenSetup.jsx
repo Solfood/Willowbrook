@@ -5,10 +5,44 @@ export default function GardenSetup({ onComplete }) {
     const [width, setWidth] = useState(10);
     const [length, setLength] = useState(10);
     const [zone, setZone] = useState('7a');
+    const [zipCode, setZipCode] = useState('');
+    const [lookupState, setLookupState] = useState('idle'); // idle | loading | success | error
+    const [lookupMessage, setLookupMessage] = useState('');
 
     const handleSubmit = (e) => {
         e.preventDefault();
         onComplete({ width: Number(width), length: Number(length), zone });
+    };
+
+    const handleZipLookup = async () => {
+        const zip = zipCode.trim();
+        if (!/^\d{5}$/.test(zip)) {
+            setLookupState('error');
+            setLookupMessage('Enter a valid 5-digit ZIP code.');
+            return;
+        }
+
+        setLookupState('loading');
+        setLookupMessage('Looking up USDA zone...');
+
+        try {
+            const response = await fetch(`https://phzmapi.org/${zip}.json`);
+            if (!response.ok) {
+                throw new Error('Lookup failed');
+            }
+            const payload = await response.json();
+            if (!payload?.zone) {
+                throw new Error('No zone found');
+            }
+
+            const normalizedZone = String(payload.zone).toLowerCase();
+            setZone(normalizedZone);
+            setLookupState('success');
+            setLookupMessage(`ZIP ${zip} maps to USDA zone ${normalizedZone.toUpperCase()}.`);
+        } catch {
+            setLookupState('error');
+            setLookupMessage('Could not resolve that ZIP code. Try the USDA map link below.');
+        }
     };
 
     return (
@@ -48,6 +82,51 @@ export default function GardenSetup({ onComplete }) {
                     </div>
 
                     <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">USDA Zone Finder</label>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white mb-2">
+                            <iframe
+                                title="USDA Plant Hardiness Zone Map"
+                                src="https://planthardiness.ars.usda.gov/"
+                                className="w-full h-44"
+                                loading="lazy"
+                            />
+                        </div>
+                        <div className="flex gap-2 mb-1">
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={5}
+                                value={zipCode}
+                                onChange={(e) => setZipCode(e.target.value.replace(/\D/g, ''))}
+                                placeholder="ZIP code (e.g. 30301)"
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition text-sm"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleZipLookup}
+                                disabled={lookupState === 'loading'}
+                                className="px-3 py-2 text-sm font-medium border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-60"
+                            >
+                                {lookupState === 'loading' ? 'Checking...' : 'Auto-Set'}
+                            </button>
+                        </div>
+                        {lookupMessage && (
+                            <p className={`text-xs mb-1 ${lookupState === 'error' ? 'text-red-600' : 'text-gray-600'}`}>
+                                {lookupMessage}
+                            </p>
+                        )}
+                        <a
+                            href="https://planthardiness.ars.usda.gov/"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-blue-700 hover:underline"
+                        >
+                            Open full USDA map in a new tab
+                        </a>
+                    </div>
+
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">USDA Zone</label>
                         <select
                             value={zone}
@@ -56,8 +135,8 @@ export default function GardenSetup({ onComplete }) {
                             required
                         >
                             {[
-                                '3a', '3b', '4a', '4b', '5a', '5b', '6a', '6b',
-                                '7a', '7b', '8a', '8b', '9a', '9b', '10a', '10b',
+                                '1a', '1b', '2a', '2b', '3a', '3b', '4a', '4b', '5a', '5b', '6a', '6b',
+                                '7a', '7b', '8a', '8b', '9a', '9b', '10a', '10b', '11a', '11b', '12a', '12b', '13a', '13b',
                             ].map((z) => (
                                 <option key={z} value={z}>{z.toUpperCase()}</option>
                             ))}

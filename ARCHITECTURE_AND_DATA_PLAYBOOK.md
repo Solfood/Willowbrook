@@ -60,12 +60,14 @@ Role: engineering maintainer (product, architecture, data quality)
 - Timeline/Learn window guidance uses zone-aware window shifting.
 - Important caveat:
   - current zone shift is a broad heuristic, not a full regional agronomy model.
+  - USDA map embedding can be browser-policy dependent; always keep a direct "open in new tab" fallback.
 
 ## Interaction Learnings (Recent)
 - Selection should not clear when cursor moves from canvas to side panels.
 - Move mode must clear any active "new placement" tool to prevent accidental placement.
 - Right-click should never behave like left-click placement.
 - Emoji-as-SVG icons can blur under transformed canvases; native glyph rendering is crisper.
+- ZIP-based zone auto-detection improves accuracy and onboarding speed over manual dropdown selection.
 
 ## UI Clutter Policy
 - Default panels show concise summary chips.
@@ -85,6 +87,15 @@ Role: engineering maintainer (product, architecture, data quality)
   - Save/load compatibility
   - Zone propagation
 4. Document findings in this playbook before final handoff.
+
+## External Integration Notes
+- Zone auto-set uses: `https://phzmapi.org/{ZIP}.json`
+  - treat as best-effort UX helper
+  - must fail gracefully with clear message
+  - dropdown remains authoritative/manual fallback
+- USDA map reference:
+  - primary: embedded map frame on setup screen
+  - fallback: external link `https://planthardiness.ars.usda.gov/`
 
 ## Iteration Continuity Check (Mandatory Every Session)
 Before ending a feature session:
