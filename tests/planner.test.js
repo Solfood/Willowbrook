@@ -5,7 +5,7 @@ import {
     plannerActionTypes,
     plannerReducer,
 } from '../src/features/planner/planReducer.js';
-import { parseGardenPlanText } from '../src/features/planner/planSchema.js';
+import { clampPlanItemsToBounds, parseGardenPlanText } from '../src/features/planner/planSchema.js';
 
 function commit(state, items) {
     return plannerReducer(state, {
@@ -149,4 +149,40 @@ test('parseGardenPlanText rejects invalid zone', () => {
     const result = parseGardenPlanText(JSON.stringify(badPlan));
     assert.equal(result.ok, false);
     assert.match(result.error, /USDA-style/);
+});
+
+test('parseGardenPlanText clamps out-of-bounds plant coordinates', () => {
+    const plan = {
+        width: 10,
+        length: 10,
+        items: [{ id: 'p1', type: 'plant', name: 'Tomato', x: 99999, y: -100, itemId: 'tomato' }],
+    };
+
+    const result = parseGardenPlanText(JSON.stringify(plan));
+    assert.equal(result.ok, true);
+    assert.equal(result.plan.items.length, 1);
+    // 10ft world is 300px wide/high, plant occupies 15px.
+    assert.equal(result.plan.items[0].x, 285);
+    assert.equal(result.plan.items[0].y, 0);
+});
+
+test('clampPlanItemsToBounds clamps out-of-bounds structures based on size', () => {
+    const items = [
+        {
+            id: 's1',
+            type: 'structure',
+            name: 'Raised Bed',
+            x: 500,
+            y: 500,
+            width: 4,
+            length: 2,
+            subType: 'raised-bed',
+        },
+    ];
+
+    const result = clampPlanItemsToBounds(items, 10, 10);
+    assert.equal(result.ok, true);
+    // 10ft world is 300px; structure 4ft x 2ft => 120px x 60px.
+    assert.equal(result.items[0].x, 180);
+    assert.equal(result.items[0].y, 240);
 });

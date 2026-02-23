@@ -1,6 +1,6 @@
 # Architecture And Data Playbook
 
-Last updated: February 22, 2026  
+Last updated: February 23, 2026  
 Role: engineering maintainer (product, architecture, data quality)
 
 ## Scope
@@ -68,6 +68,29 @@ Role: engineering maintainer (product, architecture, data quality)
 - Right-click should never behave like left-click placement.
 - Emoji-as-SVG icons can blur under transformed canvases; native glyph rendering is crisper.
 - ZIP-based zone auto-detection improves accuracy and onboarding speed over manual dropdown selection.
+- Plan print should be isolated from the live app layout to avoid accidental multi-page/non-plan output.
+
+## Persistence Hardening (Implemented February 23, 2026)
+- `src/features/planner/planSchema.js` now normalizes/sanitizes loaded and exported items:
+  - validates expected shape
+  - strips transient UI-only fields from persisted JSON
+  - preserves required structure rendering fields (`subType`, `shape`, `itemType`) when present
+- ID generation moved from plain `Date.now()` to UUID-first (`crypto.randomUUID()` fallback).
+- Result: fewer ID collisions and cleaner repeated save/load cycles.
+
+## Print Architecture (Implemented February 23, 2026)
+- Print output now renders from a dedicated `print-plan-root` surface containing only:
+  - garden grid
+  - placed items
+- All non-plan UI is hidden during print.
+- Print scaling uses CSS min-ratio fit so output stays one landscape page in normal garden sizes.
+- Print button is available only while viewing Plan.
+- Verified scale math samples (landscape letter assumption) keep single-page fit:
+  - 10x10ft: 2.62x
+  - 20x20ft: 1.31x
+  - 30x20ft: 1.14x
+  - 40x30ft: 0.855x
+  - 60x40ft: 0.57x
 
 ## UI Clutter Policy
 - Default panels show concise summary chips.
@@ -85,7 +108,9 @@ Role: engineering maintainer (product, architecture, data quality)
   - Right-click cancel
   - Learn context persistence
   - Save/load compatibility
+  - Repeated save/load id stability
   - Zone propagation
+  - Print output is single-page plan grid only
 4. Document findings in this playbook before final handoff.
 
 ## External Integration Notes
@@ -104,9 +129,15 @@ Before ending a feature session:
 - [ ] Confirm regression method was run
 - [ ] Confirm UI readability was preserved
 - [ ] Confirm tests/build status
+- [ ] Confirm print output remains plan-only and single page
 
 Future assistant guardrail prompt:
 "Before final response, update `ARCHITECTURE_AND_DATA_PLAYBOOK.md` with session findings and confirm the Iteration Continuity Check."
+
+## Session Notes (February 23, 2026 - Follow-up)
+- Added import-time and save-time coordinate clamping to prevent out-of-bounds drift on repeated JSON round-trips.
+- Added tests covering clamped plant and structure coordinates.
+- Print pass in this environment is build/test + numeric fit validation (no browser print dialog automation in current toolchain).
 
 ## Backlog Priorities
 1. Replace heuristic zone window shifts with plant/zone table data.

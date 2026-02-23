@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { createPlannerInitialState, plannerActionTypes, plannerReducer } from '../features/planner/planReducer';
-import { parseGardenPlanText } from '../features/planner/planSchema';
+import { clampPlanItemsToBounds, parseGardenPlanText } from '../features/planner/planSchema';
 import {
     getPlantById,
     getPlantCompanions,
@@ -64,6 +64,13 @@ function centerOfPlant(item) {
 
 function spacingPxFromPlantId(plantId) {
     return (getPlantSpacingInches(plantId) / INCHES_PER_FOOT) * FOOT_PX;
+}
+
+function generateItemId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default function GardenPlanner({ width, length, zone = '7a', initialItems = [], onNewGarden, onLoadGarden }) {
@@ -279,13 +286,13 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
             ...selectedTool,
             x: snappedX,
             y: snappedY,
-            id: selectedTool.isNew ? Date.now() : selectedTool.id,
+            id: selectedTool.isNew ? generateItemId() : selectedTool.id,
         };
 
         commitItems([...items, nextItem]);
 
         if (selectedTool.isNew && selectedTool.type === 'plant') {
-            setSelectedTool((prev) => (prev ? { ...prev, id: Date.now() } : prev));
+            setSelectedTool((prev) => (prev ? { ...prev, id: generateItemId() } : prev));
         } else {
             clearSelection();
         }
@@ -298,7 +305,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
             ...item,
             itemId: item.id,
             isNew: true,
-            id: Date.now(),
+            id: generateItemId(),
         });
         setMode('place');
     }, []);
@@ -447,7 +454,12 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
     }, [plantSummary, timelineMonth, zone]);
 
     const handleSave = useCallback(async () => {
-        const data = { schemaVersion: 1, width, length, zone, items };
+        const clamped = clampPlanItemsToBounds(items, width, length);
+        if (!clamped.ok) {
+            alert(`Cannot save plan: ${clamped.error}`);
+            return;
+        }
+        const data = { schemaVersion: 1, width, length, zone, items: clamped.items };
         const jsonString = JSON.stringify(data, null, 2);
 
         try {
@@ -481,6 +493,10 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
         URL.revokeObjectURL(url);
     }, [width, length, zone, items]);
 
+    const handlePrint = useCallback(() => {
+        window.print();
+    }, []);
+
     const handleLoad = useCallback((e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -495,13 +511,19 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                 return;
             }
 
+            const loadedClamped = clampPlanItemsToBounds(result.plan.items, result.plan.width, result.plan.length);
+            if (!loadedClamped.ok) {
+                alert(`Failed to load: ${loadedClamped.error}`);
+                return;
+            }
+
             if (result.plan.width !== width || result.plan.length !== length || result.plan.zone !== zone) {
                 if (typeof onLoadGarden === 'function') {
                     onLoadGarden({
                         width: result.plan.width,
                         length: result.plan.length,
                         zone: result.plan.zone,
-                        items: result.plan.items,
+                        items: loadedClamped.items,
                     });
                     return;
                 }
@@ -509,7 +531,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                 return;
             }
 
-            dispatch({ type: plannerActionTypes.LOAD_ITEMS, payload: result.plan.items });
+            dispatch({ type: plannerActionTypes.LOAD_ITEMS, payload: loadedClamped.items });
             clearSelection();
         };
 
@@ -693,6 +715,13 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
         });
     }, [items, layers]);
 
+    const printItems = useMemo(() => {
+        return [...items].sort((a, b) => {
+            if (a.type === b.type) return 0;
+            return a.type === 'structure' ? -1 : 1;
+        });
+    }, [items]);
+
     const rulerTopTicks = useMemo(() => {
         return Array.from({ length: width + 1 }, (_, i) => i);
     }, [width]);
@@ -721,9 +750,28 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
         <div className="h-screen flex flex-col bg-[#f2f2f2]">
             <style>{`
                 @media print {
-                    @page { size: landscape; margin: 0.5cm; }
-                    header, aside, .left-rail, .right-panel, .toolbar-row { display: none !important; }
-                    main { box-shadow: none; margin: 0; padding: 0; overflow: visible; }
+                    @page { size: landscape; margin: 0.4cm; }
+                    body * { visibility: hidden !important; }
+                    .print-plan-root,
+                    .print-plan-root * { visibility: visible !important; }
+                    .print-plan-root {
+                        position: fixed;
+                        inset: 0;
+                        display: flex !important;
+                        align-items: center;
+                        justify-content: center;
+                        background: #fff;
+                        overflow: hidden;
+                    }
+                    .print-plan-frame {
+                        transform-origin: center center;
+                        transform: scale(min(calc((100vw - 0.8cm) / var(--print-plan-w)), calc((100vh - 0.8cm) / var(--print-plan-h))));
+                    }
+                    .print-plan-board {
+                        page-break-inside: avoid;
+                        break-inside: avoid;
+                        box-shadow: none !important;
+                    }
                 }
             `}</style>
 
@@ -771,7 +819,9 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                         {selectedTool ? (selectedTool.isNew ? 'Placing' : 'Moving') : `${width}ft x ${length}ft`}
                     </span>
                     <button onClick={onNewGarden} className="px-3 py-1.5 border border-red-300 rounded text-red-600 hover:bg-red-50">New</button>
-                    <button onClick={() => window.print()} className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100">Print</button>
+                    {activeSection === 'plan' && (
+                        <button onClick={handlePrint} className="px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-gray-100">Print</button>
+                    )}
                 </div>
             </header>
 
@@ -1356,6 +1406,40 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                         </>
                     )}
                 </aside>
+            </div>
+
+            <div
+                className="print-plan-root hidden"
+                style={{
+                    '--print-plan-w': `${worldWidth}px`,
+                    '--print-plan-h': `${worldHeight}px`,
+                }}
+            >
+                <div className="print-plan-frame">
+                    <div
+                        className="print-plan-board border border-gray-500 bg-white relative overflow-hidden"
+                        style={{
+                            width: worldWidth,
+                            height: worldHeight,
+                            backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
+                            backgroundImage: 'linear-gradient(to right, #d1d5db 1px, transparent 1px), linear-gradient(to bottom, #d1d5db 1px, transparent 1px)',
+                        }}
+                    >
+                        {printItems.map((item) => (
+                            <div
+                                key={`print-${item.id}`}
+                                style={{
+                                    position: 'absolute',
+                                    left: item.x,
+                                    top: item.y,
+                                    zIndex: item.type === 'plant' ? 10 : 1,
+                                }}
+                            >
+                                <RenderItemContent item={item} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     );

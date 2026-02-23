@@ -19,41 +19,116 @@ function isValidId(value) {
     return (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'string';
 }
 
-function validateItem(item, index) {
+const CELL_SIZE = 15;
+const CELLS_PER_FOOT = 2;
+
+function normalizeItem(item, index) {
     if (!isPlainObject(item)) {
-        return `Item at index ${index} must be an object.`;
+        return { ok: false, error: `Item at index ${index} must be an object.` };
     }
 
     if (!isValidId(item.id)) {
-        return `Item at index ${index} is missing a valid id.`;
+        return { ok: false, error: `Item at index ${index} is missing a valid id.` };
     }
 
     if (!isFiniteNumber(item.x) || !isFiniteNumber(item.y)) {
-        return `Item at index ${index} must include numeric x and y coordinates.`;
+        return { ok: false, error: `Item at index ${index} must include numeric x and y coordinates.` };
     }
 
     if (item.type !== 'plant' && item.type !== 'structure') {
-        return `Item at index ${index} must have type "plant" or "structure".`;
+        return { ok: false, error: `Item at index ${index} must have type "plant" or "structure".` };
     }
 
     if (typeof item.name !== 'string' || item.name.trim().length === 0) {
-        return `Item at index ${index} must include a name.`;
+        return { ok: false, error: `Item at index ${index} must include a name.` };
     }
 
     if (item.type === 'structure') {
         if (!isFiniteNumber(item.width) || item.width <= 0) {
-            return `Structure at index ${index} must have a positive numeric width.`;
+            return { ok: false, error: `Structure at index ${index} must have a positive numeric width.` };
         }
         if (!isFiniteNumber(item.length) || item.length <= 0) {
-            return `Structure at index ${index} must have a positive numeric length.`;
+            return { ok: false, error: `Structure at index ${index} must have a positive numeric length.` };
         }
     }
 
     if (item.itemId !== undefined && typeof item.itemId !== 'string') {
-        return `Item at index ${index} has invalid itemId.`;
+        return { ok: false, error: `Item at index ${index} has invalid itemId.` };
     }
 
-    return null;
+    const normalized = {
+        id: item.id,
+        x: item.x,
+        y: item.y,
+        type: item.type,
+        name: item.name.trim(),
+    };
+
+    if (typeof item.itemId === 'string') {
+        normalized.itemId = item.itemId;
+    }
+
+    if (item.type === 'structure') {
+        normalized.width = item.width;
+        normalized.length = item.length;
+        if (typeof item.subType === 'string') normalized.subType = item.subType;
+        if (typeof item.shape === 'string') normalized.shape = item.shape;
+        if (typeof item.itemType === 'string') normalized.itemType = item.itemType;
+    }
+
+    return { ok: true, item: normalized };
+}
+
+export function sanitizeGardenItems(items) {
+    if (!Array.isArray(items)) {
+        return { ok: false, error: 'Plan items must be an array.' };
+    }
+
+    const normalizedItems = [];
+    for (let i = 0; i < items.length; i += 1) {
+        const normalized = normalizeItem(items[i], i);
+        if (!normalized.ok) {
+            return normalized;
+        }
+        normalizedItems.push(normalized.item);
+    }
+
+    return {
+        ok: true,
+        items: normalizedItems,
+    };
+}
+
+export function clampPlanItemsToBounds(items, widthFeet, lengthFeet) {
+    const sanitized = sanitizeGardenItems(items);
+    if (!sanitized.ok) {
+        return sanitized;
+    }
+
+    if (!isPositiveFiniteNumber(widthFeet) || !isPositiveFiniteNumber(lengthFeet)) {
+        return { ok: false, error: 'Plan dimensions must be positive numbers.' };
+    }
+
+    const worldWidth = widthFeet * CELLS_PER_FOOT * CELL_SIZE;
+    const worldHeight = lengthFeet * CELLS_PER_FOOT * CELL_SIZE;
+
+    const clampedItems = sanitized.items.map((item) => {
+        const itemWidth = item.type === 'structure' ? item.width * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
+        const itemHeight = item.type === 'structure' ? item.length * CELLS_PER_FOOT * CELL_SIZE : CELL_SIZE;
+        const maxX = Math.max(0, worldWidth - itemWidth);
+        const maxY = Math.max(0, worldHeight - itemHeight);
+
+        return {
+            ...item,
+            x: Math.min(maxX, Math.max(0, item.x)),
+            y: Math.min(maxY, Math.max(0, item.y)),
+        };
+    });
+
+    return {
+        ok: true,
+        items: clampedItems,
+    };
 }
 
 export function parseGardenPlanText(jsonText) {
@@ -96,14 +171,12 @@ export function parseGardenPlanText(jsonText) {
         };
     }
 
-    for (let i = 0; i < parsed.items.length; i += 1) {
-        const error = validateItem(parsed.items[i], i);
-        if (error) {
-            return {
-                ok: false,
-                error,
-            };
-        }
+    const clamped = clampPlanItemsToBounds(parsed.items, parsed.width, parsed.length);
+    if (!clamped.ok) {
+        return {
+            ok: false,
+            error: clamped.error,
+        };
     }
 
     return {
@@ -113,7 +186,7 @@ export function parseGardenPlanText(jsonText) {
             width: parsed.width,
             length: parsed.length,
             zone: parsed.zone ? parsed.zone.toLowerCase() : '7a',
-            items: parsed.items,
+            items: clamped.items,
         },
     };
 }
