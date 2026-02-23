@@ -607,6 +607,12 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     }, [notesText]);
 
     const onMouseDown = (e) => {
+        if (e.button === 2) {
+            // Right-click acts as deselect/cancel.
+            clearSelection();
+            setSelectedItemId(null);
+            return;
+        }
         if (e.button !== 0) return;
         setCursorFromClient(e.clientX, e.clientY);
 
@@ -637,6 +643,7 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
     };
 
     const onMouseUp = (e) => {
+        if (e.button !== 0) return;
         const drag = mouseDragRef.current;
         const wasDrag = drag.active && drag.moved;
         mouseDragRef.current.active = false;
@@ -1403,11 +1410,14 @@ function RenderItemContent({ item, isGhost = false }) {
     }
 
     return (
-        <img
-            src={getPlantImage(item.itemId || item.id)}
-            alt={item.name}
-            className="object-contain pointer-events-none"
-            style={{ width: CELL_SIZE, height: CELL_SIZE }}
-        />
+        <div
+            className="pointer-events-none select-none flex items-center justify-center"
+            style={{ width: CELL_SIZE, height: CELL_SIZE, lineHeight: 1 }}
+            aria-label={item.name}
+        >
+            <span style={{ fontSize: CELL_SIZE * 0.95 }}>
+                {getPlantById(item.itemId || item.id)?.icon || '🌱'}
+            </span>
+        </div>
     );
 }
