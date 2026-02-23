@@ -75,6 +75,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
 
     const [selectedTool, setSelectedTool] = useState(null);
     const [selectedItemId, setSelectedItemId] = useState(null);
+    const [armedStructureMoveId, setArmedStructureMoveId] = useState(null);
     const [activeSection, setActiveSection] = useState('plan'); // plan | plant-list | parts-list | shopping | notes
     const [mode, setMode] = useState('pan'); // pan | place | move
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
@@ -109,6 +110,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
 
     const clearSelection = useCallback(() => {
         setSelectedTool(null);
+        setArmedStructureMoveId(null);
     }, []);
 
     const commitItems = useCallback((nextItems) => {
@@ -171,6 +173,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
     const pickUpItem = useCallback((item) => {
         dispatch({ type: plannerActionTypes.PICKUP_ITEM, payload: item.id });
         setSelectedItemId(item.id);
+        setArmedStructureMoveId(null);
         setSelectedTool({
             ...item,
             itemId: item.itemId || item.id,
@@ -392,14 +395,12 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
 
     const handleEnterMoveMode = useCallback(() => {
         setMode('move');
+        setArmedStructureMoveId(null);
         // If a brand-new placement tool is active, clear it so move mode does not place items.
         if (selectedTool?.isNew) {
             clearSelection();
         }
-        if (selectedPlacedItem && !selectedTool) {
-            pickUpItem(selectedPlacedItem);
-        }
-    }, [selectedPlacedItem, selectedTool, pickUpItem, clearSelection]);
+    }, [selectedTool, clearSelection]);
 
     const plantSummary = useMemo(() => {
         const byName = {};
@@ -562,6 +563,9 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
             }
 
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                if (selectedPlacedItem.type === 'structure') {
+                    return;
+                }
                 const target = e.target;
                 if (target instanceof HTMLElement) {
                     const tag = target.tagName.toLowerCase();
@@ -948,10 +952,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                                         }}
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            if (mode === 'move' && !selectedTool) {
-                                                pickUpItem(item);
-                                                return;
-                                            }
+                                            setArmedStructureMoveId(null);
                                             setSelectedItemId(item.id);
                                         }}
                                         style={{
@@ -959,7 +960,7 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                                             left: item.x,
                                             top: item.y,
                                             zIndex: item.type === 'plant' ? 10 : 1,
-                                            cursor: mode === 'move' ? 'grab' : 'default',
+                                            cursor: mode === 'move' ? 'pointer' : 'default',
                                         }}
                                     >
                                         <RenderItemContent item={item} />
@@ -1123,13 +1124,31 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                                     >
                                         Apply
                                     </button>
-                                    {mode === 'move' && !selectedTool && (
+                                    {mode === 'move' && !selectedTool && selectedPlacedItem.type !== 'structure' && (
                                         <button
                                             type="button"
                                             onClick={() => pickUpItem(selectedPlacedItem)}
                                             className="flex-1 px-2 py-1.5 text-xs rounded border border-amber-600 text-amber-700 bg-white hover:bg-amber-50"
                                         >
-                                            Pick Up Selected
+                                            Move This Item
+                                        </button>
+                                    )}
+                                    {mode === 'move' && !selectedTool && selectedPlacedItem.type === 'structure' && armedStructureMoveId !== selectedPlacedItem.id && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setArmedStructureMoveId(selectedPlacedItem.id)}
+                                            className="flex-1 px-2 py-1.5 text-xs rounded border border-amber-700 text-amber-800 bg-amber-50 hover:bg-amber-100"
+                                        >
+                                            Unlock Structure Move
+                                        </button>
+                                    )}
+                                    {mode === 'move' && !selectedTool && selectedPlacedItem.type === 'structure' && armedStructureMoveId === selectedPlacedItem.id && (
+                                        <button
+                                            type="button"
+                                            onClick={() => pickUpItem(selectedPlacedItem)}
+                                            className="flex-1 px-2 py-1.5 text-xs rounded border border-amber-600 text-amber-700 bg-white hover:bg-amber-50"
+                                        >
+                                            Move This Item
                                         </button>
                                     )}
                                     <button
@@ -1140,6 +1159,11 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                                         Delete
                                     </button>
                                 </div>
+                                {mode === 'move' && selectedPlacedItem.type === 'structure' && !selectedTool && (
+                                    <p className="text-[11px] text-gray-500 mt-2">
+                                        Structures are move-locked by default. Use "Unlock Structure Move" before repositioning.
+                                    </p>
+                                )}
                             </form>
                         )}
                     </div>
