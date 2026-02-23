@@ -1175,6 +1175,13 @@ export default function GardenPlanner({ width, length, initialItems = [], onNewG
                                             Confidence S/N/W: {focusedPlantContext.evidence.spacing}/{focusedPlantContext.evidence.neighbors}/{focusedPlantContext.evidence.window}
                                         </span>
                                     </div>
+                                    <details className="text-[11px] text-gray-600 mb-2">
+                                        <summary className="cursor-pointer select-none">Confidence key</summary>
+                                        <div className="mt-1">
+                                            <strong>S</strong> = spacing, <strong>N</strong> = neighbors, <strong>W</strong> = planting window.
+                                            <span className="ml-1">Each value is high/medium/low confidence.</span>
+                                        </div>
+                                    </details>
                                     <div className="text-[11px] text-gray-600 mb-2">Last reviewed: {focusedPlantContext.lastReviewed || 'Not reviewed yet'}</div>
                                     <p className="text-xs text-gray-600 mb-2">{focusedPlantContext.notes}</p>
                                     <div className="text-xs text-gray-700">
