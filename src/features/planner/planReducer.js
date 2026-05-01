@@ -18,16 +18,23 @@ export const plannerActionTypes = {
     LOAD_ITEMS: 'LOAD_ITEMS',
 };
 
+const MAX_HISTORY = 50;
+
+function capHistory(history) {
+    return history.length > MAX_HISTORY ? history.slice(history.length - MAX_HISTORY) : history;
+}
+
 export function plannerReducer(state, action) {
     switch (action.type) {
         case plannerActionTypes.COMMIT_ITEMS: {
             const nextItems = Array.isArray(action.payload) ? action.payload : [];
             const nextHistory = state.history.slice(0, state.currentHistoryIndex + 1);
             nextHistory.push(nextItems);
+            const cappedHistory = capHistory(nextHistory);
             return {
                 items: nextItems,
-                history: nextHistory,
-                currentHistoryIndex: nextHistory.length - 1,
+                history: cappedHistory,
+                currentHistoryIndex: cappedHistory.length - 1,
             };
         }
 
@@ -69,10 +76,11 @@ export function plannerReducer(state, action) {
             const loadedItems = Array.isArray(action.payload) ? action.payload : [];
             const nextHistory = state.history.slice(0, state.currentHistoryIndex + 1);
             nextHistory.push(loadedItems);
+            const cappedHistory = capHistory(nextHistory);
             return {
                 items: loadedItems,
-                history: nextHistory,
-                currentHistoryIndex: nextHistory.length - 1,
+                history: cappedHistory,
+                currentHistoryIndex: cappedHistory.length - 1,
             };
         }
 

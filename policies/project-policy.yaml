@@ -1,0 +1,37 @@
+project_name: "Willowbrook"
+marker_prefix: "WB"
+owner: "Solfood"
+repo_url: "https://github.com/Solfood/Willowbrook"
+tech_stack: "React 18, Vite, TypeScript, Tailwind CSS, lucide-react"
+deployment_env: "GitHub Pages (dist/)"
+
+tracks:
+  - ARCH   # architecture decisions
+  - API    # API surface changes
+  - DATA   # data model and persistence (local JSON plan files)
+  - SEC    # security and auth
+  - OBS    # observability and metrics
+  - DX     # developer experience and tooling
+  - FIX    # bug fixes
+
+suite:
+  - name: "bluray"
+    url: "https://github.com/Solfood/bluray"
+    relationship: "sibling GitHub Pages app — same owner, shared deployment pattern"
+  - name: "recipes-wiki"
+    url: "https://github.com/Solfood/recipes-wiki"
+    relationship: "sibling GitHub Pages site — same owner, shared deployment pattern"
+
+risk_tolerance: "low"
+critical_assets:
+  - "garden_plan_json"    # user's exported garden plan data
+compliance_requirements: []
+blocking_severities:
+  - "critical"
+  - "high"
+mandatory_gates:
+  - "coherence"
+  - "engineering_fundamentals"
+  - "verification"
+  - "safety"
+  - "release_readiness"

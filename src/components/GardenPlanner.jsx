@@ -15,7 +15,12 @@ import {
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { createPlannerInitialState, plannerActionTypes, plannerReducer } from '../features/planner/planReducer';
-import { clampPlanItemsToBounds, parseGardenPlanText } from '../features/planner/planSchema';
+import { useCameraControls } from '../features/planner/useCameraControls';
+import { usePlannerIO } from '../features/planner/usePlannerIO';
+import { useKeyboardShortcuts } from '../features/planner/useKeyboardShortcuts';
+import { LearnTab } from '../features/planner/LearnTab';
+import { LayersTab } from '../features/planner/LayersTab';
+import { TimelineTab } from '../features/planner/TimelineTab';
 import {
     getPlantById,
     getPlantCompanions,
@@ -28,12 +33,9 @@ import {
 const CELL_SIZE = 15;
 const CELLS_PER_FOOT = 2;
 const FOOT_PX = CELL_SIZE * CELLS_PER_FOOT;
-const MIN_SCALE = 0.35;
-const MAX_SCALE = 3;
 const INCHES_PER_FOOT = 12;
 
 const DIRT_PATTERN = `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%235D4037' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`;
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -85,8 +87,6 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
     const [armedStructureMoveId, setArmedStructureMoveId] = useState(null);
     const [activeSection, setActiveSection] = useState('plan'); // plan | plant-list | parts-list | shopping | notes
     const [mode, setMode] = useState('pan'); // pan | place | move
-    const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
-    const [cursorWorld, setCursorWorld] = useState({ x: worldWidth / 2, y: worldHeight / 2 });
     const [rightTab, setRightTab] = useState('learn'); // learn | layers | timeline
     const [layers, setLayers] = useState({
         grid: true,
@@ -115,6 +115,11 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
         originY: 0,
     });
 
+    const {
+        camera, setCamera, cursorWorld,
+        toWorld, setCursorFromClient, fitToView, zoomAt, zoomFromViewportCenter,
+    } = useCameraControls(viewportRef, worldWidth, worldHeight);
+
     const clearSelection = useCallback(() => {
         setSelectedTool(null);
         setArmedStructureMoveId(null);
@@ -123,59 +128,6 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
     const commitItems = useCallback((nextItems) => {
         dispatch({ type: plannerActionTypes.COMMIT_ITEMS, payload: nextItems });
     }, []);
-
-    const toWorld = useCallback((clientX, clientY, activeCamera = camera) => {
-        if (!viewportRef.current) return { x: 0, y: 0 };
-        const rect = viewportRef.current.getBoundingClientRect();
-        return {
-            x: (clientX - rect.left - activeCamera.x) / activeCamera.scale,
-            y: (clientY - rect.top - activeCamera.y) / activeCamera.scale,
-        };
-    }, [camera]);
-
-    const setCursorFromClient = useCallback((clientX, clientY) => {
-        setCursorWorld(toWorld(clientX, clientY));
-    }, [toWorld]);
-
-    const fitToView = useCallback(() => {
-        if (!viewportRef.current) return;
-        const rect = viewportRef.current.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-
-        const scale = clamp(
-            Math.min((rect.width - 48) / worldWidth, (rect.height - 48) / worldHeight),
-            MIN_SCALE,
-            MAX_SCALE
-        );
-
-        setCamera({
-            scale,
-            x: (rect.width - (worldWidth * scale)) / 2,
-            y: (rect.height - (worldHeight * scale)) / 2,
-        });
-    }, [worldWidth, worldHeight]);
-
-    const zoomAt = useCallback((nextScale, clientX, clientY) => {
-        setCamera((prev) => {
-            if (!viewportRef.current) return prev;
-            const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
-            const world = toWorld(clientX, clientY, prev);
-            const rect = viewportRef.current.getBoundingClientRect();
-            const lx = clientX - rect.left;
-            const ly = clientY - rect.top;
-            return {
-                scale,
-                x: lx - (world.x * scale),
-                y: ly - (world.y * scale),
-            };
-        });
-    }, [toWorld]);
-
-    const zoomFromViewportCenter = useCallback((nextScale) => {
-        if (!viewportRef.current) return;
-        const rect = viewportRef.current.getBoundingClientRect();
-        zoomAt(nextScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }, [zoomAt]);
 
     const pickUpItem = useCallback((item) => {
         dispatch({ type: plannerActionTypes.PICKUP_ITEM, payload: item.id });
@@ -453,172 +405,20 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
         });
     }, [plantSummary, timelineMonth, zone]);
 
-    const handleSave = useCallback(async () => {
-        const clamped = clampPlanItemsToBounds(items, width, length);
-        if (!clamped.ok) {
-            alert(`Cannot save plan: ${clamped.error}`);
-            return;
-        }
-        const data = { schemaVersion: 1, width, length, zone, items: clamped.items };
-        const jsonString = JSON.stringify(data, null, 2);
-
-        try {
-            if (typeof window.showSaveFilePicker === 'function') {
-                const handle = await window.showSaveFilePicker({
-                    suggestedName: 'willowbrook-garden.json',
-                    types: [{
-                        description: 'JSON/Garden Plan',
-                        accept: { 'application/json': ['.json'] },
-                    }],
-                });
-                const writable = await handle.createWritable();
-                await writable.write(jsonString);
-                await writable.close();
-                return;
-            }
-        } catch (err) {
-            if (err.name === 'AbortError') return;
-            console.error('Save picker failed, using fallback:', err);
-        }
-
-        const filename = prompt('Enter a name for your garden plan:', 'willowbrook-garden');
-        if (!filename) return;
-
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${filename}.json`;
-        link.click();
-        URL.revokeObjectURL(url);
-    }, [width, length, zone, items]);
-
-    const handlePrint = useCallback(() => {
-        window.print();
+    const loadItems = useCallback((newItems) => {
+        dispatch({ type: plannerActionTypes.LOAD_ITEMS, payload: newItems });
     }, []);
 
-    const handleLoad = useCallback((e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    const { handleSave, handleLoad, handlePrint } = usePlannerIO({
+        width, length, zone, items, onLoadGarden, clearSelection, loadItems,
+    });
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const content = typeof event.target?.result === 'string' ? event.target.result : '';
-            const result = parseGardenPlanText(content);
-
-            if (!result.ok) {
-                alert(`Failed to load: ${result.error}`);
-                return;
-            }
-
-            const loadedClamped = clampPlanItemsToBounds(result.plan.items, result.plan.width, result.plan.length);
-            if (!loadedClamped.ok) {
-                alert(`Failed to load: ${loadedClamped.error}`);
-                return;
-            }
-
-            if (result.plan.width !== width || result.plan.length !== length || result.plan.zone !== zone) {
-                if (typeof onLoadGarden === 'function') {
-                    onLoadGarden({
-                        width: result.plan.width,
-                        length: result.plan.length,
-                        zone: result.plan.zone,
-                        items: loadedClamped.items,
-                    });
-                    return;
-                }
-                alert('Loaded plan settings do not match current garden.');
-                return;
-            }
-
-            dispatch({ type: plannerActionTypes.LOAD_ITEMS, payload: loadedClamped.items });
-            clearSelection();
-        };
-
-        reader.readAsText(file);
-        e.target.value = '';
-    }, [width, length, zone, onLoadGarden, clearSelection]);
-
-    useEffect(() => {
-        const onKeyDown = (e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                if (e.shiftKey) handleRedo();
-                else handleUndo();
-                return;
-            }
-
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
-                e.preventDefault();
-                handleRedo();
-                return;
-            }
-
-            if (e.key === 'Escape') {
-                if (selectedTool && !selectedTool.isNew) {
-                    dispatch({ type: plannerActionTypes.RESET_TO_COMMITTED });
-                }
-                clearSelection();
-                setSelectedItemId(null);
-                return;
-            }
-
-            const isDeleteKey = e.key === 'Delete'
-                || e.key === 'Backspace'
-                || e.code === 'Delete'
-                || e.code === 'Backspace';
-            if (isDeleteKey && (selectedTool || selectedItemId)) {
-                const target = e.target;
-                if (target instanceof HTMLElement) {
-                    const tag = target.tagName.toLowerCase();
-                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
-                        return;
-                    }
-                }
-                e.preventDefault();
-                handleTrash();
-                return;
-            }
-
-            if (!selectedPlacedItem || selectedTool || mode === 'pan') {
-                return;
-            }
-
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-                if (selectedPlacedItem.type === 'structure') {
-                    return;
-                }
-                const target = e.target;
-                if (target instanceof HTMLElement) {
-                    const tag = target.tagName.toLowerCase();
-                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
-                        return;
-                    }
-                }
-
-                e.preventDefault();
-                const stepPx = snapPx || FOOT_PX / 2;
-                const { w, h } = getItemPixelSize(selectedPlacedItem);
-                const maxX = Math.max(0, worldWidth - w);
-                const maxY = Math.max(0, worldHeight - h);
-                let nextX = selectedPlacedItem.x;
-                let nextY = selectedPlacedItem.y;
-
-                if (e.key === 'ArrowLeft') nextX -= stepPx;
-                if (e.key === 'ArrowRight') nextX += stepPx;
-                if (e.key === 'ArrowUp') nextY -= stepPx;
-                if (e.key === 'ArrowDown') nextY += stepPx;
-
-                applyItemPatch(selectedPlacedItem.id, {
-                    x: clamp(nextX, 0, maxX),
-                    y: clamp(nextY, 0, maxY),
-                });
-            }
-        };
-
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedTool, selectedItemId, selectedPlacedItem, mode, snapPx, worldWidth, worldHeight, applyItemPatch, clearSelection, handleUndo, handleRedo, handleTrash]);
+    useKeyboardShortcuts({
+        selectedTool, selectedItemId, selectedPlacedItem,
+        mode, snapPx, worldWidth, worldHeight,
+        applyItemPatch, clearSelection, handleUndo, handleRedo, handleTrash,
+        dispatch, setSelectedItemId,
+    });
 
     useEffect(() => {
         fitToView();
@@ -1225,185 +1025,28 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
                     </div>
 
                     {rightTab === 'learn' && (
-                        <>
-                            <h3 className="font-semibold text-gray-800 mb-2">Learn to Use</h3>
-                            <p className="text-xs text-gray-600 mb-4">Desktop-first planner workflow guidance with live plant intelligence.</p>
-                            <HelpCard title="1. Place Plants" body="Choose a plant in the left panel, then click on the canvas to place." />
-                            <HelpCard title="2. Resize Structures" body="Set width/length in Structures tab, then place on the canvas." />
-                            <HelpCard title="3. Spacing Ring" body="Plant placement ring turns red when spacing or poor-neighbor guidance is violated." />
-                            <HelpCard title="4. Move Items" body="Switch to Move mode, then click an item to pick it up and reposition." />
-                            <HelpCard title="5. Save & Print" body="Use Save for JSON export and Print for plan output." />
-
-                            {focusedPlantContext && (
-                                <div className="mt-4 border border-gray-200 rounded p-3 bg-gray-50">
-                                    <h4 className="text-sm font-semibold text-gray-800 mb-2">
-                                        Plant Guidance: {focusedPlantContext.name}
-                                    </h4>
-                                    <div className="flex flex-wrap gap-1.5 mb-2">
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
-                                            Spacing: {focusedPlantContext.spacingInches}"
-                                        </span>
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
-                                            Scope: {focusedPlantContext.regionScope}
-                                        </span>
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
-                                            Zone: {String(zone).toUpperCase()}
-                                        </span>
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-700">
-                                            Confidence S/N/W: {focusedPlantContext.evidence.spacing}/{focusedPlantContext.evidence.neighbors}/{focusedPlantContext.evidence.window}
-                                        </span>
-                                    </div>
-                                    <details className="text-[11px] text-gray-600 mb-2">
-                                        <summary className="cursor-pointer select-none">Confidence key</summary>
-                                        <div className="mt-1">
-                                            <strong>S</strong> = spacing, <strong>N</strong> = neighbors, <strong>W</strong> = planting window.
-                                            <span className="ml-1">Each value is high/medium/low confidence.</span>
-                                        </div>
-                                    </details>
-                                    <div className="text-[11px] text-gray-600 mb-2">Last reviewed: {focusedPlantContext.lastReviewed || 'Not reviewed yet'}</div>
-                                    <p className="text-xs text-gray-600 mb-2">{focusedPlantContext.notes}</p>
-                                    <div className="text-xs text-gray-700">
-                                        Good neighbors: {focusedPlantContext.goodNeighbors.length > 0 ? focusedPlantContext.goodNeighbors.join(', ') : 'none listed'}
-                                    </div>
-                                    <div className="text-xs text-gray-700 mb-2">
-                                        Avoid near: {focusedPlantContext.avoidNeighbors.length > 0 ? focusedPlantContext.avoidNeighbors.join(', ') : 'none listed'}
-                                    </div>
-                                    <details className="text-xs text-gray-600">
-                                        <summary className="cursor-pointer select-none">Sources ({focusedPlantContext.sourceRefs.length})</summary>
-                                        {focusedPlantContext.sourceRefs.length === 0 ? (
-                                            <div className="mt-1">Not populated yet.</div>
-                                        ) : (
-                                            <ul className="mt-1 mb-2 space-y-1">
-                                                {focusedPlantContext.sourceRefs.map((ref, idx) => (
-                                                    <li key={`${focusedPlantContext.id}-src-${idx}`}>
-                                                        <a href={ref.url} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
-                                                            {ref.title || ref.url}
-                                                        </a>
-                                                        <span className="text-gray-500"> ({ref.publisher || 'source'})</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                    </details>
-                                    <details className="text-xs text-gray-600 mt-1">
-                                        <summary className="cursor-pointer select-none">Nearby plants ({focusedPlantContext.nearby.length})</summary>
-                                        {focusedPlantContext.nearby.length === 0 ? (
-                                            <div className="mt-1">No nearby plants.</div>
-                                        ) : (
-                                            <ul className="mt-1 space-y-1">
-                                                {focusedPlantContext.nearby.map((neighbor) => (
-                                                    <li key={neighbor.id} className="flex justify-between">
-                                                        <span>
-                                                            {neighbor.name}
-                                                            {neighbor.relation === 'good' ? ' (good)' : ''}
-                                                            {neighbor.relation === 'avoid' ? ' (avoid)' : ''}
-                                                            {neighbor.tooClose ? ' - too close' : ''}
-                                                        </span>
-                                                        <span>{neighbor.distanceInches}"</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                    </details>
-                                </div>
-                            )}
-
-                            {placementInsights?.status === 'warning' && (
-                                <div className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                                    Placement warning: the current ghost location violates spacing or companion guidance.
-                                </div>
-                            )}
-                        </>
+                        <LearnTab
+                            focusedPlantContext={focusedPlantContext}
+                            placementInsights={placementInsights}
+                            zone={zone}
+                        />
                     )}
 
                     {rightTab === 'layers' && (
-                        <>
-                            <h3 className="font-semibold text-gray-800 mb-2">Layers</h3>
-                            <p className="text-xs text-gray-600 mb-3">Control visibility and editability.</p>
-                            <LayerRow
-                                name="Grid"
-                                checked={layers.grid}
-                                onChange={(checked) => setLayers((prev) => ({ ...prev, grid: checked }))}
-                            />
-                            <LayerRow
-                                name="Structures"
-                                checked={layers.structures}
-                                onChange={(checked) => setLayers((prev) => ({ ...prev, structures: checked }))}
-                            />
-                            <LayerRow
-                                name="Plants"
-                                checked={layers.plants}
-                                onChange={(checked) => setLayers((prev) => ({ ...prev, plants: checked }))}
-                            />
-                            <LayerRow
-                                name="Selection Guides"
-                                checked={layers.guides}
-                                onChange={(checked) => setLayers((prev) => ({ ...prev, guides: checked }))}
-                            />
-                            {selectedTool && (
-                                <div className="mt-4 p-3 rounded border border-gray-200 bg-gray-50 text-xs">
-                                    <div className="font-semibold text-gray-700 mb-1">Inspector</div>
-                                    <div className="text-gray-600">Name: {selectedTool.name}</div>
-                                    <div className="text-gray-600">Type: {selectedTool.type}</div>
-                                    {selectedTool.type === 'structure' && (
-                                        <div className="text-gray-600">Size: {selectedTool.width}' x {selectedTool.length}'</div>
-                                    )}
-                                </div>
-                            )}
-                        </>
+                        <LayersTab
+                            layers={layers}
+                            setLayers={setLayers}
+                            selectedTool={selectedTool}
+                        />
                     )}
 
                     {rightTab === 'timeline' && (
-                        <>
-                            <h3 className="font-semibold text-gray-800 mb-2">Timeline</h3>
-                            <p className="text-xs text-gray-600 mb-3">Compare your current plants against suggested planting windows.</p>
-                            <div className="text-[11px] text-gray-600 mb-2">USDA zone context: {String(zone).toUpperCase()}</div>
-                            <label className="text-xs text-gray-600 block mb-2">
-                                Month
-                                <select
-                                    value={timelineMonth}
-                                    onChange={(e) => setTimelineMonth(Number(e.target.value))}
-                                    className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
-                                >
-                                    {MONTH_LABELS.map((label, idx) => (
-                                        <option key={label} value={idx}>{label}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
-                                {timelineRows.length === 0 ? (
-                                    <p className="text-xs text-gray-500">Add plants to see timeline guidance.</p>
-                                ) : timelineRows.map((row) => (
-                                    <div key={row.name} className="border border-gray-200 rounded p-2 bg-gray-50">
-                                        <div className="flex justify-between text-xs mb-1">
-                                            <span className="font-medium text-gray-800">{row.name}</span>
-                                            <span className="text-gray-600">x{row.count}</span>
-                                        </div>
-                                        {row.window ? (
-                                            <div>
-                                                <div className={`text-[11px] mb-1 ${row.inWindow ? 'text-green-700' : 'text-amber-700'}`}>
-                                                    Suggested: {MONTH_LABELS[row.window.start]}-{MONTH_LABELS[row.window.end]} {row.inWindow ? '(in window)' : '(outside window)'}
-                                                </div>
-                                                <div className="grid grid-cols-12 gap-0.5">
-                                                    {MONTH_LABELS.map((month, idx) => {
-                                                        const inSuggested = idx >= row.window.start && idx <= row.window.end;
-                                                        const isActive = idx === timelineMonth;
-                                                        return (
-                                                            <div
-                                                                key={`${row.name}-${month}`}
-                                                                className={`h-2 rounded-sm ${inSuggested ? 'bg-green-300' : 'bg-gray-200'} ${isActive ? 'ring-1 ring-gray-700' : ''}`}
-                                                            />
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="text-[11px] text-gray-500">No planting window defined yet.</div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </>
+                        <TimelineTab
+                            timelineMonth={timelineMonth}
+                            setTimelineMonth={setTimelineMonth}
+                            zone={zone}
+                            timelineRows={timelineRows}
+                        />
                     )}
                 </aside>
             </div>
@@ -1445,15 +1088,6 @@ export default function GardenPlanner({ width, length, zone = '7a', initialItems
     );
 }
 
-function HelpCard({ title, body }) {
-    return (
-        <div className="mb-3 border border-gray-200 rounded p-3 bg-gray-50">
-            <h4 className="text-sm font-semibold text-gray-800 mb-1">{title}</h4>
-            <p className="text-xs text-gray-600">{body}</p>
-        </div>
-    );
-}
-
 function SimpleTable({ title, columns, rows, emptyMessage }) {
     return (
         <div>
@@ -1487,19 +1121,6 @@ function SimpleTable({ title, columns, rows, emptyMessage }) {
                 </div>
             )}
         </div>
-    );
-}
-
-function LayerRow({ name, checked, onChange }) {
-    return (
-        <label className="flex items-center justify-between text-sm text-gray-700 py-2 border-b border-gray-100">
-            <span>{name}</span>
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={(e) => onChange?.(e.target.checked)}
-            />
-        </label>
     );
 }
 

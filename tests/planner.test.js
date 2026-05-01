@@ -6,6 +6,7 @@ import {
     plannerReducer,
 } from '../src/features/planner/planReducer.js';
 import { clampPlanItemsToBounds, parseGardenPlanText } from '../src/features/planner/planSchema.js';
+import { validatePlantNeighborIds, getPlantingWindow } from '../src/features/catalog/catalog.js';
 
 function commit(state, items) {
     return plannerReducer(state, {
@@ -164,6 +165,104 @@ test('parseGardenPlanText clamps out-of-bounds plant coordinates', () => {
     // 10ft world is 300px wide/high, plant occupies 15px.
     assert.equal(result.plan.items[0].x, 285);
     assert.equal(result.plan.items[0].y, 0);
+});
+
+test('COMMIT_ITEMS caps history at 50 entries', () => {
+    let state = createPlannerInitialState();
+    for (let i = 0; i < 51; i++) {
+        state = commit(state, [{ id: i, type: 'plant', name: 'Tomato', x: i, y: 0 }]);
+    }
+    assert.ok(state.history.length <= 50, `history.length should be ≤ 50, got ${state.history.length}`);
+    assert.equal(state.currentHistoryIndex, state.history.length - 1);
+});
+
+// ── Zone planting window ───────────────────────────────────────────────────
+
+test('getPlantingWindow zone 7a returns unshifted base window', () => {
+    // tomato plantingWindow is { start: 3, end: 5 } (April–June)
+    const w = getPlantingWindow('tomato', '7a');
+    assert.ok(w !== null);
+    assert.equal(w.start, 3);
+    assert.equal(w.end, 5);
+});
+
+test('getPlantingWindow zone 4b shifts +1 month vs zone 7a', () => {
+    const base = getPlantingWindow('tomato', '7a');
+    const cold = getPlantingWindow('tomato', '4b');
+    assert.equal(cold.start, base.start + 1);
+    assert.equal(cold.end, base.end + 1);
+});
+
+test('getPlantingWindow zone 6b and 7a return same shift (boundary check)', () => {
+    const w6b = getPlantingWindow('tomato', '6b');
+    const w7a = getPlantingWindow('tomato', '7a');
+    assert.equal(w6b.start, w7a.start);
+    assert.equal(w6b.end, w7a.end);
+});
+
+test('getPlantingWindow zone 8b shifts −1 month vs zone 7a', () => {
+    const base = getPlantingWindow('tomato', '7a');
+    const warm = getPlantingWindow('tomato', '8b');
+    assert.equal(warm.start, base.start - 1);
+    assert.equal(warm.end, base.end - 1);
+});
+
+test('getPlantingWindow unknown zone falls back to no shift', () => {
+    const base = getPlantingWindow('tomato', '7a');
+    const unknown = getPlantingWindow('tomato', 'invalid');
+    assert.equal(unknown.start, base.start);
+    assert.equal(unknown.end, base.end);
+});
+
+test('getPlantingWindow returns null for unknown plant id', () => {
+    assert.equal(getPlantingWindow('not-a-plant', '7a'), null);
+});
+
+test('all plant neighbor IDs reference existing plants', () => {
+    const unknowns = validatePlantNeighborIds();
+    assert.equal(unknowns.length, 0, `Unknown neighbor IDs found: ${JSON.stringify(unknowns)}`);
+});
+
+// ── Move-mode lifecycle ────────────────────────────────────────────────────
+
+test('RESET_TO_COMMITTED after PICKUP restores item to items list', () => {
+    const items = [
+        { id: 'a', type: 'plant', name: 'Tomato', x: 0, y: 0 },
+        { id: 'b', type: 'plant', name: 'Carrot', x: 15, y: 0 },
+    ];
+    const state = commit(createPlannerInitialState(), items);
+    const picked = plannerReducer(state, { type: plannerActionTypes.PICKUP_ITEM, payload: 'a' });
+    assert.equal(picked.items.length, 1);
+
+    const reset = plannerReducer(picked, { type: plannerActionTypes.RESET_TO_COMMITTED });
+    assert.equal(reset.items.length, 2);
+    assert.ok(reset.items.some((i) => i.id === 'a'));
+});
+
+test('PICKUP_ITEM when item is already absent is a no-op on history', () => {
+    const items = [{ id: 'x', type: 'plant', name: 'Tomato', x: 0, y: 0 }];
+    const state = commit(createPlannerInitialState(), items);
+    const picked = plannerReducer(state, { type: plannerActionTypes.PICKUP_ITEM, payload: 'x' });
+
+    const pickedAgain = plannerReducer(picked, { type: plannerActionTypes.PICKUP_ITEM, payload: 'x' });
+    assert.equal(pickedAgain.history.length, picked.history.length);
+    assert.equal(pickedAgain.currentHistoryIndex, picked.currentHistoryIndex);
+});
+
+test('LOAD_ITEMS after undo does not corrupt history', () => {
+    const items1 = [{ id: 1, type: 'plant', name: 'Tomato', x: 0, y: 0 }];
+    const items2 = [{ id: 2, type: 'plant', name: 'Carrot', x: 15, y: 0 }];
+    const loaded = [{ id: 3, type: 'plant', name: 'Lettuce', x: 30, y: 0 }];
+
+    let state = createPlannerInitialState();
+    state = commit(state, items1);
+    state = commit(state, items2);
+    state = plannerReducer(state, { type: plannerActionTypes.UNDO });
+    state = plannerReducer(state, { type: plannerActionTypes.LOAD_ITEMS, payload: loaded });
+
+    assert.deepEqual(state.items, loaded);
+    assert.equal(state.currentHistoryIndex, state.history.length - 1);
+    assert.deepEqual(state.history[state.currentHistoryIndex], loaded);
 });
 
 test('clampPlanItemsToBounds clamps out-of-bounds structures based on size', () => {

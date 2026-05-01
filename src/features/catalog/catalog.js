@@ -1,4 +1,4 @@
-import { PLANT_DATABASE } from './plantDatabase';
+import { PLANT_DATABASE } from './plantDatabase.js';
 
 export const PLANT_CATEGORIES = PLANT_DATABASE.reduce((acc, plant) => {
     const next = acc;
@@ -20,6 +20,25 @@ const PLANT_BY_ID = PLANT_DATABASE.reduce((acc, plant) => {
     return acc;
 }, {});
 
+export function validatePlantNeighborIds() {
+    const unknown = [];
+    for (const plant of PLANT_DATABASE) {
+        for (const id of (plant.goodNeighbors || [])) {
+            if (!PLANT_BY_ID[id]) unknown.push({ plantId: plant.id, unknownId: id });
+        }
+        for (const id of (plant.avoidNeighbors || [])) {
+            if (!PLANT_BY_ID[id]) unknown.push({ plantId: plant.id, unknownId: id });
+        }
+    }
+    return unknown;
+}
+
+if (import.meta.env?.DEV) {
+    for (const { plantId, unknownId } of validatePlantNeighborIds()) {
+        console.error(`[catalog] Unknown neighbor ID "${unknownId}" on plant "${plantId}"`);
+    }
+}
+
 export function getPlantById(id) {
     return PLANT_BY_ID[id] || null;
 }
@@ -32,21 +51,32 @@ function clampMonth(month) {
     return Math.max(0, Math.min(11, month));
 }
 
-function getZoneNumber(zone) {
-    const value = String(zone || '').trim().toLowerCase();
-    const match = value.match(/^([1-9][0-9]?)[ab]$/);
-    if (!match) return 7;
-    return Number(match[1]);
+// Month shift relative to zone 7a baseline. Colder zones plant later (+), warmer earlier (−).
+const ZONE_MONTH_SHIFT = {
+    '1a':  3, '1b':  3,
+    '2a':  3, '2b':  2,
+    '3a':  2, '3b':  2,
+    '4a':  2, '4b':  1,
+    '5a':  1, '5b':  1,
+    '6a':  1, '6b':  0,
+    '7a':  0, '7b':  0,
+    '8a':  0, '8b': -1,
+    '9a': -1, '9b': -1,
+    '10a': -2, '10b': -2,
+    '11a': -2, '11b': -3,
+    '12a': -3, '12b': -3,
+    '13a': -3, '13b': -3,
+};
+
+function getZoneMonthShift(zone) {
+    const key = String(zone || '').trim().toLowerCase();
+    return ZONE_MONTH_SHIFT[key] ?? 0;
 }
 
 export function getPlantingWindow(id, zone = '7a') {
     const base = getPlantById(id)?.plantingWindow ?? null;
     if (!base) return null;
-
-    // Shift by broad climate band; colder zones plant later, warmer zones earlier.
-    const zoneNumber = getZoneNumber(zone);
-    const monthShift = Math.round((7 - zoneNumber) / 2);
-
+    const monthShift = getZoneMonthShift(zone);
     return {
         start: clampMonth(base.start + monthShift),
         end: clampMonth(base.end + monthShift),

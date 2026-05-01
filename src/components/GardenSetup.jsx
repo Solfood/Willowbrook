@@ -30,8 +30,12 @@ export default function GardenSetup({ onComplete }) {
         setLookupState('loading');
         setLookupMessage('Looking up USDA zone...');
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
         try {
-            const response = await fetch(`https://phzmapi.org/${zip}.json`);
+            const response = await fetch(`https://phzmapi.org/${zip}.json`, { signal: controller.signal });
+            clearTimeout(timeoutId);
             if (!response.ok) {
                 throw new Error('Lookup failed');
             }
@@ -44,9 +48,14 @@ export default function GardenSetup({ onComplete }) {
             setZone(normalizedZone);
             setLookupState('success');
             setLookupMessage(`ZIP ${zip} maps to USDA zone ${normalizedZone.toUpperCase()}.`);
-        } catch {
+        } catch (err) {
+            clearTimeout(timeoutId);
             setLookupState('error');
-            setLookupMessage('Could not resolve that ZIP code. Try the USDA map link below.');
+            setLookupMessage(
+                err.name === 'AbortError'
+                    ? 'ZIP lookup timed out — please select your zone manually.'
+                    : 'Could not resolve that ZIP code. Try the USDA map link below.'
+            );
         }
     };
 
