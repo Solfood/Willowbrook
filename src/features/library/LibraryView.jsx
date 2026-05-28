@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Copy, Download } from 'lucide-react';
 import { getAllPlants } from '../catalog/catalog.js';
-import { filterPlants, getCategories } from './libraryFilters.js';
+import { filterPlants, deriveCategoryChips } from './libraryFilters.js';
 import { actions } from '../plan/planReducer.js';
 
 function newId() {
@@ -56,9 +56,9 @@ export default function LibraryView({ plan, dispatch }) {
     const [category, setCategory] = useState('');
 
     const allPlants = useMemo(() => getAllPlants(plan), [plan]);
-    const categories = useMemo(() => getCategories(allPlants), [allPlants]);
+    const categories = useMemo(() => deriveCategoryChips(allPlants), [allPlants]);
     const filtered = useMemo(
-        () => filterPlants(allPlants, { query, category: category || null }),
+        () => filterPlants(allPlants, { search: query, category: category || null }),
         [allPlants, query, category],
     );
 
