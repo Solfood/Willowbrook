@@ -7,8 +7,9 @@ const ZONE_OPTIONS = [
     '7a','7b','8a','8b','9a','9b','10a','10b','11a','11b','12a','12b','13a','13b',
 ];
 
-const DEFAULT_LAST = '2026-04-15';
-const DEFAULT_FIRST = '2026-10-30';
+const CURRENT_YEAR = new Date().getFullYear();
+const DEFAULT_LAST = `${CURRENT_YEAR}-04-15`;
+const DEFAULT_FIRST = `${CURRENT_YEAR}-10-30`;
 
 export default function GardenSetup({ onComplete }) {
     const [name, setName] = useState('My Garden');
