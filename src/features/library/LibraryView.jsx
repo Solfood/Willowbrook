@@ -1,39 +1,29 @@
-import React, { useState, useMemo } from 'react';
-import { Copy, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Pencil, Download } from 'lucide-react';
 import { getAllPlants } from '../catalog/catalog.js';
-import { filterPlants, getCategories } from './libraryFilters.js';
-import { actions } from '../plan/planReducer.js';
+import { filterPlants, deriveCategoryChips } from './libraryFilters.js';
+import AddPlantForm from './AddPlantForm.jsx';
 
-function newId() {
-    return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
+const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
-function PlantCard({ plant, isCustom, onClone }) {
+function MonthStrip({ window }) {
+    if (!window) return null;
+    const active = new Set();
+    const { start, end } = window;
+    if (start <= end) {
+        for (let i = start; i <= end; i++) active.add(i);
+    } else {
+        for (let i = start; i <= 11; i++) active.add(i);
+        for (let i = 0; i <= end; i++) active.add(i);
+    }
     return (
-        <div className="bg-white border border-gray-200 rounded-lg p-3 flex flex-col gap-1.5 relative">
-            <div className="flex items-start gap-2">
-                <span className="text-2xl leading-none">{plant.icon || '🌿'}</span>
-                <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-800 text-sm leading-snug">{plant.name}</p>
-                    <p className="text-xs text-gray-400 capitalize">{plant.category}</p>
-                </div>
-                {isCustom && (
-                    <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium shrink-0">
-                        Mine
-                    </span>
-                )}
-            </div>
-            {plant.notes && (
-                <p className="text-xs text-gray-500 line-clamp-2">{plant.notes}</p>
-            )}
-            {!isCustom && (
-                <button
-                    onClick={() => onClone(plant)}
-                    className="mt-auto self-start flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
-                >
-                    <Copy size={11} /> Clone to My Plants
-                </button>
-            )}
+        <div className="flex gap-0.5 text-[10px] mt-1">
+            {MONTHS.map((m, i) => (
+                <span key={i}
+                    className={`w-4 h-4 inline-flex items-center justify-center rounded-sm ${
+                        active.has(i) ? 'bg-green-200 text-green-900' : 'bg-gray-100 text-gray-400'
+                    }`}>{m}</span>
+            ))}
         </div>
     );
 }
@@ -52,72 +42,122 @@ function exportCustomPlants(customPlants, gardenName) {
 }
 
 export default function LibraryView({ plan, dispatch }) {
-    const [query, setQuery] = useState('');
-    const [category, setCategory] = useState('');
+    const allPlants = getAllPlants(plan);
+    const categories = deriveCategoryChips(allPlants);
+    const [search, setSearch] = useState('');
+    const [category, setCategory] = useState(null);
+    const [expandedId, setExpandedId] = useState(null);
+    const [formMode, setFormMode] = useState(null);
 
-    const allPlants = useMemo(() => getAllPlants(plan), [plan]);
-    const categories = useMemo(() => getCategories(allPlants), [allPlants]);
-    const filtered = useMemo(
-        () => filterPlants(allPlants, { query, category: category || null }),
-        [allPlants, query, category],
-    );
-
-    const customIds = useMemo(
-        () => new Set((plan?.customPlants || []).map((p) => p.id)),
-        [plan],
-    );
-
-    function handleClone(plant) {
-        const clone = { ...plant, id: newId(), isUserAdded: true, clonedFrom: plant.id };
-        dispatch(actions.addCustomPlant(clone));
-    }
-
-    const hasCustom = (plan?.customPlants || []).length > 0;
+    const filtered = filterPlants(allPlants, { search, category });
 
     return (
-        <div className="p-4 flex flex-col gap-4 h-full">
-            <div className="flex flex-wrap items-center gap-2">
-                <input
-                    type="search"
-                    placeholder="Search plants…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="border border-gray-300 rounded px-2.5 py-1.5 text-sm flex-1 min-w-48 focus:outline-none focus:ring-1 focus:ring-green-500"
-                />
-                <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="border border-gray-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-                >
-                    <option value="">All categories</option>
-                    {categories.map((c) => (
-                        <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-                    ))}
-                </select>
-                <button
-                    disabled={!hasCustom}
-                    onClick={() => exportCustomPlants(plan.customPlants, plan?.garden?.name)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    title={hasCustom ? 'Export your custom plants as JSON' : 'No custom plants yet'}
-                >
-                    <Download size={14} /> Export my plants
-                </button>
-            </div>
+        <div className="p-6">
+            <header className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-800">Library</h2>
+                <div className="flex items-center gap-2">
+                    <button
+                        disabled={!plan?.customPlants?.length}
+                        onClick={() => exportCustomPlants(plan.customPlants, plan?.garden?.name)}
+                        title={plan?.customPlants?.length ? 'Export your custom plants as JSON' : 'No custom plants yet'}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 border rounded text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <Download size={14} /> Export my plants
+                    </button>
+                    <button onClick={() => setFormMode('create')}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-700 text-white rounded hover:bg-green-800">
+                        <Plus size={16} /> Add a plant
+                    </button>
+                </div>
+            </header>
 
-            {filtered.length === 0 ? (
-                <p className="text-sm text-gray-500 mt-4">No plants match your search.</p>
-            ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 overflow-auto pb-2">
-                    {filtered.map((plant) => (
-                        <PlantCard
-                            key={plant.id}
-                            plant={plant}
-                            isCustom={customIds.has(plant.id)}
-                            onClone={handleClone}
-                        />
+            <div className="flex flex-col md:flex-row gap-3 mb-4">
+                <input type="search" placeholder="Search plants by name or notes…"
+                    value={search} onChange={(e) => setSearch(e.target.value)}
+                    className="flex-1 border rounded px-3 py-1.5 text-sm" />
+                <div className="flex flex-wrap gap-1">
+                    <Chip active={category === null} onClick={() => setCategory(null)}>all</Chip>
+                    {categories.map((c) => (
+                        <Chip key={c} active={category === c} onClick={() => setCategory(c)}>{c}</Chip>
                     ))}
                 </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {filtered.map((p) => (
+                    <article key={p.id}
+                        className="border rounded p-3 bg-white hover:shadow-sm cursor-pointer"
+                        onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}>
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <div className="text-2xl">{p.icon}</div>
+                                <div className="font-medium">{p.name}</div>
+                                <div className="text-xs text-gray-600">{p.category}</div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                                {p.isUserAdded && (
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">yours</span>
+                                )}
+                                {p.isUserAdded && (
+                                    <button onClick={(e) => { e.stopPropagation(); setFormMode({ editPlantId: p.id }); }}
+                                        className="p-1 hover:bg-gray-100 rounded" title="Edit">
+                                        <Pencil size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-xs text-gray-600 mt-2">
+                            <div>Spacing: {p.spacingInches}″ · DTM: {p.daysToMaturity}d</div>
+                            <MonthStrip window={p.plantingWindow} />
+                        </div>
+                        {expandedId === p.id && (
+                            <div className="mt-3 pt-3 border-t text-xs space-y-2">
+                                {p.notes && <p className="text-gray-700">{p.notes}</p>}
+                                {(p.goodNeighbors?.length > 0) && (
+                                    <p><span className="font-medium text-green-700">Good with:</span> {p.goodNeighbors.join(', ')}</p>
+                                )}
+                                {(p.avoidNeighbors?.length > 0) && (
+                                    <p><span className="font-medium text-red-700">Avoid:</span> {p.avoidNeighbors.join(', ')}</p>
+                                )}
+                                {p.sourceRefs?.length > 0 && (
+                                    <details>
+                                        <summary className="text-gray-500 cursor-pointer">Sources</summary>
+                                        <ul className="list-disc pl-4 mt-1 text-gray-600">
+                                            {p.sourceRefs.map((ref, i) => (
+                                                <li key={i}>
+                                                    <a href={ref.url} target="_blank" rel="noreferrer" className="underline">{ref.title}</a>
+                                                    {ref.publisher && <span> — {ref.publisher}</span>}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </details>
+                                )}
+                            </div>
+                        )}
+                    </article>
+                ))}
+                {filtered.length === 0 && (
+                    <div className="col-span-full text-center text-sm text-gray-500 py-8">
+                        No plants match. Try clearing filters or adding one.
+                    </div>
+                )}
+            </div>
+
+            {formMode === 'create' && (
+                <AddPlantForm plan={plan} dispatch={dispatch} onClose={() => setFormMode(null)} />
+            )}
+            {formMode && formMode.editPlantId && (
+                <AddPlantForm plan={plan} dispatch={dispatch} editPlantId={formMode.editPlantId}
+                    onClose={() => setFormMode(null)} />
             )}
         </div>
+    );
+}
+
+function Chip({ active, onClick, children }) {
+    return (
+        <button onClick={onClick}
+            className={`text-xs px-2 py-1 rounded border ${
+                active ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}>{children}</button>
     );
 }

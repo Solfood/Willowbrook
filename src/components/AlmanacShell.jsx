@@ -4,6 +4,7 @@ import { planReducer, createInitialState, actions } from '../features/plan/planR
 import { usePlanIO } from '../features/plan/usePlanIO.js';
 import AgendaView from '../features/agenda/AgendaView';
 import BedsView from '../features/beds/BedsView';
+import BedDetail from '../features/beds/BedDetail';
 import LibraryView from '../features/library/LibraryView';
 
 const VIEWS = [
@@ -15,6 +16,7 @@ const VIEWS = [
 export default function AlmanacShell({ initialPlan, onNewGarden }) {
     const [state, dispatch] = useReducer(planReducer, createInitialState(initialPlan));
     const [view, setView] = useState('agenda');
+    const [selectedBedId, setSelectedBedId] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const { handleSave, handleLoad } = usePlanIO({ plan: state.plan, dispatch, setLoadError });
 
@@ -65,7 +67,10 @@ export default function AlmanacShell({ initialPlan, onNewGarden }) {
                         <button
                             key={id}
                             title={label}
-                            onClick={() => setView(id)}
+                            onClick={() => {
+                                if (id === 'beds') setSelectedBedId(null);
+                                setView(id);
+                            }}
                             className={`p-2 rounded ${view === id ? 'bg-green-800' : 'hover:bg-green-800/60'}`}
                         >
                             <Icon size={18} />
@@ -75,7 +80,13 @@ export default function AlmanacShell({ initialPlan, onNewGarden }) {
 
                 <main className="flex-1 overflow-auto bg-white">
                     {view === 'agenda' && <AgendaView plan={state.plan} dispatch={dispatch} />}
-                    {view === 'beds' && <BedsView plan={state.plan} dispatch={dispatch} />}
+                    {view === 'beds' && !selectedBedId && (
+                        <BedsView plan={state.plan} dispatch={dispatch} onSelectBed={setSelectedBedId} />
+                    )}
+                    {view === 'beds' && selectedBedId && (
+                        <BedDetail plan={state.plan} dispatch={dispatch} bedId={selectedBedId}
+                            onBack={() => setSelectedBedId(null)} />
+                    )}
                     {view === 'library' && <LibraryView plan={state.plan} dispatch={dispatch} />}
                 </main>
             </div>

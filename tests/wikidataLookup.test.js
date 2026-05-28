@@ -1,105 +1,79 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normaliseSparqlResults, lookupPlants } from '../src/features/catalog/wikidataLookup.js';
+import { searchPlantsByName, parseWbSearchResponse, WB_SEARCH_URL } from '../src/features/library/wikidataLookup.js';
 
-// ── normaliseSparqlResults (pure, no network) ────────────────────────────────
-
-const SAMPLE_RESPONSE = {
-    results: {
-        bindings: [
-            {
-                item:      { value: 'http://www.wikidata.org/entity/Q235' },
-                itemLabel: { value: 'Solanum lycopersicum' },
-                commonName:{ value: 'tomato' },
-                gbifId:    { value: '2930137' },
-            },
-            {
-                // second row for the same item — extra common name
-                item:      { value: 'http://www.wikidata.org/entity/Q235' },
-                itemLabel: { value: 'Solanum lycopersicum' },
-                commonName:{ value: 'garden tomato' },
-                gbifId:    { value: '2930137' },
-            },
-            {
-                item:      { value: 'http://www.wikidata.org/entity/Q12345' },
-                itemLabel: { value: 'Solanum pimpinellifolium' },
-                // no commonName or gbifId in this row
-            },
-        ],
-    },
+const HAPPY_FIXTURE = {
+    search: [
+        { id: 'Q23501', label: 'tomato', description: 'species of plant, vegetable' },
+        { id: 'Q165044', label: 'Solanum lycopersicum', description: 'species in the genus Solanum' },
+        { id: 'Q11789', label: 'Tomato', description: 'fictional character' },
+    ],
+    'search-continue': 3,
+    success: 1,
 };
 
-test('normaliseSparqlResults deduplicates rows by item ID', () => {
-    const results = normaliseSparqlResults(SAMPLE_RESPONSE);
-    assert.equal(results.length, 2);
+test('parseWbSearchResponse normalizes the search array to {qid, name, description}', () => {
+    const out = parseWbSearchResponse(HAPPY_FIXTURE);
+    assert.equal(out.length, 3);
+    assert.deepEqual(out[0], { qid: 'Q23501', name: 'tomato', description: 'species of plant, vegetable' });
 });
 
-test('normaliseSparqlResults merges commonNames for the same item', () => {
-    const [tomato] = normaliseSparqlResults(SAMPLE_RESPONSE);
-    assert.ok(tomato.commonNames.includes('tomato'));
-    assert.ok(tomato.commonNames.includes('garden tomato'));
-    assert.equal(tomato.commonNames.length, 2);
+test('parseWbSearchResponse handles a missing description gracefully', () => {
+    const out = parseWbSearchResponse({ search: [{ id: 'Qx', label: 'thing' }] });
+    assert.equal(out[0].description, '');
 });
 
-test('normaliseSparqlResults populates scientificName and gbifId', () => {
-    const [tomato] = normaliseSparqlResults(SAMPLE_RESPONSE);
-    assert.equal(tomato.scientificName, 'Solanum lycopersicum');
-    assert.equal(tomato.gbifId, '2930137');
+test('parseWbSearchResponse throws on malformed input', () => {
+    assert.throws(() => parseWbSearchResponse(null), /Wikidata/);
+    assert.throws(() => parseWbSearchResponse({}), /Wikidata/);
+    assert.throws(() => parseWbSearchResponse({ search: 'not an array' }), /Wikidata/);
 });
 
-test('normaliseSparqlResults handles missing optional fields', () => {
-    const [, cherry] = normaliseSparqlResults(SAMPLE_RESPONSE);
-    assert.equal(cherry.commonNames.length, 0);
-    assert.equal(cherry.gbifId, null);
+test('WB_SEARCH_URL builds the wbsearchentities URL with origin=* for CORS', () => {
+    const url = WB_SEARCH_URL('tomato');
+    assert.match(url, /action=wbsearchentities/);
+    assert.match(url, /search=tomato/);
+    assert.match(url, /origin=%2A|origin=\*/);
+    assert.match(url, /language=en/);
+    assert.match(url, /format=json/);
 });
 
-test('normaliseSparqlResults returns [] for empty bindings', () => {
-    assert.deepEqual(normaliseSparqlResults({ results: { bindings: [] } }), []);
+test('WB_SEARCH_URL URL-encodes the query', () => {
+    assert.match(WB_SEARCH_URL('bell pepper'), /search=bell%20pepper|search=bell\+pepper/);
 });
 
-test('normaliseSparqlResults returns [] for malformed input', () => {
-    assert.deepEqual(normaliseSparqlResults(null), []);
-    assert.deepEqual(normaliseSparqlResults({}), []);
-    assert.deepEqual(normaliseSparqlResults({ results: null }), []);
+test('searchPlantsByName happy path returns normalized results', async () => {
+    const fakeFetch = async () => ({ ok: true, status: 200, json: async () => HAPPY_FIXTURE });
+    const r = await searchPlantsByName('tomato', { fetch: fakeFetch });
+    assert.equal(r.ok, true);
+    assert.equal(r.results[0].qid, 'Q23501');
 });
 
-// ── lookupPlants (stub fetch) ────────────────────────────────────────────────
-
-function makeFetchStub(response, { ok = true, status = 200 } = {}) {
-    return async () => ({
-        ok,
-        status,
-        statusText: ok ? 'OK' : 'Bad Request',
-        json: async () => response,
-    });
-}
-
-test('lookupPlants returns empty array for blank query', async () => {
-    const results = await lookupPlants('   ', { fetchFn: makeFetchStub(SAMPLE_RESPONSE) });
-    assert.deepEqual(results, []);
+test('searchPlantsByName surfaces non-2xx as an error result', async () => {
+    const fakeFetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+    const r = await searchPlantsByName('tomato', { fetch: fakeFetch });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /Wikidata/);
 });
 
-test('lookupPlants returns normalised candidates on success', async () => {
-    const results = await lookupPlants('tomato', { fetchFn: makeFetchStub(SAMPLE_RESPONSE) });
-    assert.equal(results.length, 2);
-    assert.equal(results[0].scientificName, 'Solanum lycopersicum');
+test('searchPlantsByName surfaces AbortError as a timeout result', async () => {
+    const fakeFetch = async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; };
+    const r = await searchPlantsByName('tomato', { fetch: fakeFetch });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /timed out|Wikidata/i);
 });
 
-test('lookupPlants throws on non-ok HTTP response', async () => {
-    await assert.rejects(
-        () => lookupPlants('tomato', { fetchFn: makeFetchStub({}, { ok: false, status: 500 }) }),
-        /Wikidata SPARQL error/,
-    );
+test('searchPlantsByName surfaces malformed JSON as an error result', async () => {
+    const fakeFetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+    const r = await searchPlantsByName('tomato', { fetch: fakeFetch });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /Wikidata/);
 });
 
-test('lookupPlants throws timeout error when fetch aborts', async () => {
-    const slowFetch = () => new Promise((_, reject) => {
-        const err = new Error('aborted');
-        err.name = 'AbortError';
-        reject(err);
-    });
-    await assert.rejects(
-        () => lookupPlants('tomato', { fetchFn: slowFetch, timeoutMs: 1 }),
-        /timed out/,
-    );
+test('searchPlantsByName rejects empty query without hitting the network', async () => {
+    let called = false;
+    const fakeFetch = async () => { called = true; return { ok: true, json: async () => HAPPY_FIXTURE }; };
+    const r = await searchPlantsByName('   ', { fetch: fakeFetch });
+    assert.equal(r.ok, false);
+    assert.equal(called, false);
 });

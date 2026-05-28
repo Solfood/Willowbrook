@@ -1,74 +1,56 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterPlants, getCategories } from '../src/features/library/libraryFilters.js';
+import { filterPlants, deriveCategoryChips } from '../src/features/library/libraryFilters.js';
 
-const PLANTS = [
-    { id: 'tomato',  name: 'Tomato',  category: 'vegetables', notes: 'Needs support and airflow.' },
-    { id: 'basil',   name: 'Basil',   category: 'herbs',      notes: 'Great companion.' },
-    { id: 'marigold',name: 'Marigold',category: 'flowers',    notes: 'Repels pests.' },
-    { id: 'carrot',  name: 'Carrot',  category: 'vegetables', notes: 'Direct sow.' },
-    { id: 'custom1', name: 'Yardlong Bean', category: 'vegetables', notes: '', isUserAdded: true },
+const SAMPLE = [
+    { id: 'tomato',   name: 'Tomato',  category: 'vegetables', notes: 'support and airflow' },
+    { id: 'basil',    name: 'Basil',   category: 'herbs',      notes: 'pinch for branching' },
+    { id: 'marigold', name: 'Marigold',category: 'flowers',    notes: 'deters pests' },
+    { id: 'u-1', isUserAdded: true, name: 'Yardlong Bean', category: 'vegetables', notes: '' },
 ];
 
-test('filterPlants — no options returns all plants', () => {
-    assert.equal(filterPlants(PLANTS).length, PLANTS.length);
+test('filterPlants returns all when search empty and category null', () => {
+    assert.equal(filterPlants(SAMPLE, { search: '', category: null }).length, 4);
 });
 
-test('filterPlants — empty query returns all plants', () => {
-    assert.equal(filterPlants(PLANTS, { query: '' }).length, PLANTS.length);
+test('filterPlants matches against name case-insensitively', () => {
+    const out = filterPlants(SAMPLE, { search: 'tom', category: null });
+    assert.deepEqual(out.map((p) => p.id), ['tomato']);
 });
 
-test('filterPlants — query matches by name (case-insensitive)', () => {
-    const results = filterPlants(PLANTS, { query: 'TOMATO' });
-    assert.equal(results.length, 1);
-    assert.equal(results[0].id, 'tomato');
+test('filterPlants matches against notes substring', () => {
+    const out = filterPlants(SAMPLE, { search: 'airflow', category: null });
+    assert.deepEqual(out.map((p) => p.id), ['tomato']);
 });
 
-test('filterPlants — query matches by id substring', () => {
-    const results = filterPlants(PLANTS, { query: 'mari' });
-    assert.equal(results.length, 1);
-    assert.equal(results[0].id, 'marigold');
+test('filterPlants filters by category', () => {
+    const out = filterPlants(SAMPLE, { search: '', category: 'herbs' });
+    assert.deepEqual(out.map((p) => p.id), ['basil']);
 });
 
-test('filterPlants — query matches by notes substring', () => {
-    const results = filterPlants(PLANTS, { query: 'companion' });
-    assert.equal(results.length, 1);
-    assert.equal(results[0].id, 'basil');
+test('filterPlants synthetic "yours" category filters by isUserAdded', () => {
+    const out = filterPlants(SAMPLE, { search: '', category: 'yours' });
+    assert.deepEqual(out.map((p) => p.id), ['u-1']);
 });
 
-test('filterPlants — category filter narrows results', () => {
-    const results = filterPlants(PLANTS, { category: 'vegetables' });
-    assert.equal(results.length, 3);
-    assert.ok(results.every((p) => p.category === 'vegetables'));
+test('filterPlants combines search + category (AND)', () => {
+    const out = filterPlants(SAMPLE, { search: 'bean', category: 'vegetables' });
+    assert.deepEqual(out.map((p) => p.id), ['u-1']);
 });
 
-test('filterPlants — combined query + category', () => {
-    const results = filterPlants(PLANTS, { query: 'carrot', category: 'vegetables' });
-    assert.equal(results.length, 1);
-    assert.equal(results[0].id, 'carrot');
+test('filterPlants treats whitespace-only search as empty', () => {
+    assert.equal(filterPlants(SAMPLE, { search: '   ', category: null }).length, 4);
 });
 
-test('filterPlants — combined query + wrong category returns empty', () => {
-    const results = filterPlants(PLANTS, { query: 'tomato', category: 'herbs' });
-    assert.equal(results.length, 0);
+test('deriveCategoryChips returns sorted unique categories plus "yours" when user plants exist', () => {
+    assert.deepEqual(deriveCategoryChips(SAMPLE), ['flowers', 'herbs', 'vegetables', 'yours']);
 });
 
-test('filterPlants — no match returns empty array', () => {
-    assert.equal(filterPlants(PLANTS, { query: 'zzz' }).length, 0);
+test('deriveCategoryChips omits "yours" when no user plants', () => {
+    assert.deepEqual(deriveCategoryChips(SAMPLE.slice(0, 3)), ['flowers', 'herbs', 'vegetables']);
 });
 
-test('filterPlants — whitespace-only query treated as empty', () => {
-    assert.equal(filterPlants(PLANTS, { query: '   ' }).length, PLANTS.length);
-});
-
-test('getCategories — returns sorted unique categories', () => {
-    const cats = getCategories(PLANTS);
-    assert.deepEqual(cats, ['flowers', 'herbs', 'vegetables']);
-});
-
-test('getCategories — skips plants with no category', () => {
-    const mixed = [...PLANTS, { id: 'x', name: 'Unknown' }];
-    const cats = getCategories(mixed);
-    assert.ok(!cats.includes(undefined));
-    assert.ok(!cats.includes(null));
+test('deriveCategoryChips skips plants with no category', () => {
+    const noCat = [...SAMPLE, { id: 'x', name: 'Nameless' }];
+    assert.deepEqual(deriveCategoryChips(noCat), ['flowers', 'herbs', 'vegetables', 'yours']);
 });

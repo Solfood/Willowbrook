@@ -1,134 +1,98 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeFootprint, buildLegend } from '../src/features/beds/footprint.js';
+import { computeFootprint, CELL_INCHES, EMPTY_CELL } from '../src/features/beds/footprint.js';
 
-const PLANTS = {
-    tomato: { icon: '🍅', spacingInches: 24, name: 'Tomato' },
-    basil:  { icon: '🌿', spacingInches: 6,  name: 'Basil' },
-    carrot: { icon: '🥕', spacingInches: 3,  name: 'Carrot' },
-};
+const TOMATO = { id: 'tomato', name: 'Tomato', icon: '🍅', spacingInches: 24 };
+const CARROT = { id: 'carrot', name: 'Carrot', icon: '🥕', spacingInches: 3  };
+const BASIL  = { id: 'basil',  name: 'Basil',  icon: '🌿', spacingInches: 12 };
 
-const BED_4x4 = { widthFt: 4, lengthFt: 4 }; // 16 sq ft
-const BED_4x8 = { widthFt: 4, lengthFt: 8 }; // 32 sq ft
+const PLANTS = { tomato: TOMATO, carrot: CARROT, basil: BASIL };
 
-test('grid has correct dimensions (rows × cols)', () => {
-    const { grid, rows, cols } = computeFootprint(BED_4x8, [], PLANTS);
-    assert.equal(rows, 8);
-    assert.equal(cols, 4);
-    assert.equal(grid.length, rows);
-    assert.ok(grid.every((row) => row.length === cols));
+test('empty bed: all cells empty, empty legend, no overflow', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 4, lengthFt: 8 },
+        plantings: [],
+        plantsById: PLANTS,
+    });
+    assert.equal(r.gridCols, 8);
+    assert.equal(r.gridRows, 16);
+    assert.equal(r.cells.length, 16);
+    assert.equal(r.cells[0].length, 8);
+    assert.ok(r.cells.every((row) => row.every((c) => c === EMPTY_CELL)));
+    assert.deepEqual(r.legend, []);
+    assert.deepEqual(r.overflow, []);
 });
 
-test('empty plantings produce an all-null grid, no overflow', () => {
-    const { grid, overflow } = computeFootprint(BED_4x4, [], PLANTS);
-    assert.equal(overflow, false);
-    assert.ok(grid.flat().every((c) => c === null));
+test('single carrot fits in a 4x8 bed with no overflow', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 4, lengthFt: 8 },
+        plantings: [{ plantId: 'carrot', quantity: 5 }],
+        plantsById: PLANTS,
+    });
+    const filled = r.cells.flat().filter((c) => c === '🥕').length;
+    assert.equal(filled, 5);
+    assert.deepEqual(r.legend, [{ plantId: 'carrot', name: 'Carrot', icon: '🥕', requested: 5, placed: 5 }]);
+    assert.deepEqual(r.overflow, []);
 });
 
-test('single tomato (24" = 4 cells) placed at [0][0], no overflow', () => {
-    const { grid, overflow } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'tomato', quantity: 1 }],
-        PLANTS,
-    );
-    assert.equal(overflow, false);
-    assert.deepEqual(grid[0][0], { icon: '🍅', plantId: 'tomato' });
-    // next slot should be null (4 cells apart, so cell 1,2,3 are skipped)
-    assert.equal(grid[0][1], null);
+test('carrots overflow when quantity exceeds grid cells', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 2, lengthFt: 2 },
+        plantings: [{ plantId: 'carrot', quantity: 20 }],
+        plantsById: PLANTS,
+    });
+    const placed = r.cells.flat().filter((c) => c === '🥕').length;
+    assert.equal(placed, 16);
+    assert.deepEqual(r.legend, [{ plantId: 'carrot', name: 'Carrot', icon: '🥕', requested: 20, placed: 16 }]);
+    assert.deepEqual(r.overflow, [{ plantId: 'carrot', name: 'Carrot', missing: 4 }]);
 });
 
-test('4 tomatoes fill all 16 sq ft of 4×4 bed exactly (no overflow)', () => {
-    // tomato takes 4 cells, 16/4 = 4 plants fit
-    const { grid, overflow } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'tomato', quantity: 4 }],
-        PLANTS,
-    );
-    assert.equal(overflow, false);
-    const filled = grid.flat().filter(Boolean);
-    assert.equal(filled.length, 4);
-});
-
-test('5th tomato triggers overflow in 4×4 bed', () => {
-    const { overflow } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'tomato', quantity: 5 }],
-        PLANTS,
-    );
-    assert.equal(overflow, true);
-});
-
-test('basil (6" spacing = 1 cell each) packs densely', () => {
-    // 6" → cellsPerPlant = max(1, round((6/12)^2)) = max(1, round(0.25)) = 1
-    const { grid, overflow } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'basil', quantity: 16 }],
-        PLANTS,
-    );
-    assert.equal(overflow, false);
-    assert.equal(grid.flat().filter(Boolean).length, 16);
-});
-
-test('overflow triggers for more plants than cells', () => {
-    const { overflow } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'basil', quantity: 100 }],
-        PLANTS,
-    );
-    assert.equal(overflow, true);
-});
-
-test('mixed plantings fill in order (tomato first, then carrot)', () => {
-    // 4×4 = 16 cells. 2 tomatoes = 8 cells, remaining 8 for carrots.
-    const { grid, overflow } = computeFootprint(
-        BED_4x4,
-        [
-            { plantId: 'tomato', quantity: 2 },
-            { plantId: 'carrot', quantity: 4 },
+test('multiple plants are placed big-spacing-first (deterministic)', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 4, lengthFt: 4 },
+        plantings: [
+            { plantId: 'carrot', quantity: 10 },
+            { plantId: 'tomato', quantity: 1 },
         ],
-        PLANTS,
-    );
-    assert.equal(overflow, false);
-    assert.deepEqual(grid[0][0], { icon: '🍅', plantId: 'tomato' });
-    assert.deepEqual(grid[1][0], { icon: '🍅', plantId: 'tomato' });
-    // cursor after 2 tomatoes = 8; next plants are carrots at cursor 8
-    assert.deepEqual(grid[2][0], { icon: '🥕', plantId: 'carrot' });
+        plantsById: PLANTS,
+    });
+    const flat = r.cells.flat();
+    const firstFilled = flat.find((c) => c !== EMPTY_CELL);
+    assert.equal(firstFilled, '🍅');
+    assert.deepEqual(r.legend.map((e) => e.plantId), ['tomato', 'carrot']);
 });
 
-test('unknown plant falls back to 🌿 icon and 12" spacing', () => {
-    const { grid } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'mystery-herb', quantity: 1 }],
-        PLANTS,
-    );
-    assert.deepEqual(grid[0][0], { icon: '🌿', plantId: 'mystery-herb' });
-});
-
-test('zero-quantity planting adds nothing', () => {
-    const { grid } = computeFootprint(
-        BED_4x4,
-        [{ plantId: 'tomato', quantity: 0 }],
-        PLANTS,
-    );
-    assert.ok(grid.flat().every((c) => c === null));
-});
-
-test('buildLegend returns unique plants present in grid', () => {
-    const { grid } = computeFootprint(
-        BED_4x4,
-        [
+test('mixed sizes: tomato + basil + carrot all appear with correct counts', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 4, lengthFt: 8 },
+        plantings: [
             { plantId: 'tomato', quantity: 2 },
-            { plantId: 'basil',  quantity: 2 },
+            { plantId: 'basil',  quantity: 4 },
+            { plantId: 'carrot', quantity: 20 },
         ],
-        PLANTS,
-    );
-    const legend = buildLegend(grid, PLANTS);
-    assert.equal(legend.length, 2);
-    assert.ok(legend.some((e) => e.plantId === 'tomato' && e.name === 'Tomato'));
-    assert.ok(legend.some((e) => e.plantId === 'basil'  && e.name === 'Basil'));
+        plantsById: PLANTS,
+    });
+    const counts = r.cells.flat().reduce((acc, c) => {
+        if (c !== EMPTY_CELL) acc[c] = (acc[c] || 0) + 1;
+        return acc;
+    }, {});
+    assert.equal(counts['🍅'], 32);  // 2 × 16
+    assert.equal(counts['🌿'], 16);  // 4 × 4
+    assert.equal(counts['🥕'], 20);  // 20 × 1
+    assert.equal(r.overflow.length, 0);
 });
 
-test('buildLegend returns empty array for empty grid', () => {
-    const { grid } = computeFootprint(BED_4x4, [], PLANTS);
-    assert.deepEqual(buildLegend(grid, PLANTS), []);
+test('bed dimensions floor to whole cells (3x7 -> 6x14)', () => {
+    const r = computeFootprint({
+        bed: { widthFt: 3, lengthFt: 7 },
+        plantings: [],
+        plantsById: PLANTS,
+    });
+    assert.equal(r.gridCols, 6);
+    assert.equal(r.gridRows, 14);
+});
+
+test('exported constants match spec values', () => {
+    assert.equal(CELL_INCHES, 6);
+    assert.equal(EMPTY_CELL, '·');
 });

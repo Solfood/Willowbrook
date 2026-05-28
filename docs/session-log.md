@@ -4,6 +4,35 @@ Append-only continuity log.
 
 ---
 
+### 2026-05-28 - Session 10 (Plan 2 rework + finish)
+
+- Markers: `WB-ARCH-0003` (Plan 2 of 3 — Library + Beds; reconciliation + completion)
+- Objective: Reconcile session-9 (warren) divergences with the Plan 2 spec, then execute the skipped UI work (AddPlantForm, real LibraryView, BedsView, BedDetail, BedFootprint integration). Followed the rework plan at `docs/superpowers/plans/2026-05-28-almanac-plan-2-rework-and-continue.md`.
+- Work completed (14 tasks, one commit each):
+  - **T1** Cleanup: deleted `NEXT.md` and the SPARQL `src/features/catalog/wikidataLookup.js` + its tests.
+  - **T2** `src/features/library/libraryFilters.js`: renamed to spec API (`filterPlants({ search, category })` + `deriveCategoryChips`); added synthetic `yours` chip. LibraryView import updated.
+  - **T3** `src/features/beds/footprint.js`: rewrote to spec algorithm — 6″ cells, deterministic big-first ordering, fill-stamp packing, per-plant overflow records, exported `CELL_INCHES` + `EMPTY_CELL`. 7 tests.
+  - **T4** `src/features/beds/BedFootprint.jsx`: rewrote against new `computeFootprint({ bed, plantings, plantsById })` contract.
+  - **T5** `src/features/library/wikidataLookup.js` (new): `wbsearchentities` REST endpoint, no SPARQL, DI-friendly `fetch`, 8 s `AbortController`, `{ ok, results | error }` shape. 10 tests.
+  - **T6** `src/features/library/AddPlantForm.jsx`: right-side drawer with manual entry, edit mode, full field set + validation.
+  - **T7** AddPlantForm wired Wikidata `🔍 Look up online` button + candidate panel with fail-soft inline error + CC0 credit.
+  - **T8** `src/features/library/LibraryView.jsx`: rewrote per spec (search + category chips + card grid + click-to-expand + `yours` badge + edit pencil for custom plants); preserved warren's `Export my plants` JSON download; dropped the `Clone to My Plants` button.
+  - **T9** `src/features/beds/BedsView.jsx`: cards + Add Bed modal + sprout empty state.
+  - **T10** `src/components/AlmanacShell.jsx`: `selectedBedId` state; route the Beds tab between list and detail; left-rail Beds tap resets selection. BedDetail stub created.
+  - **T11** `src/features/beds/BedDetail.jsx`: header with rename/resize + remove-with-confirm.
+  - **T12** BedDetail plantings table with inline editable Qty (blur)/Status (change)/Date (change)/Notes (blur) + `× Remove?` inline confirm + Add Planting inline row.
+  - **T13** BedDetail Journal section (append-only entries) + collapsible History table (harvested + removed plantings, null-date tiebreaker on `id`).
+  - **T14** BedFootprint integrated into BedDetail between PlantingsSection and JournalSection.
+- Verification: `npm run lint` clean, `npm test` 56/56 pass (24 from Plan 1 + 5 catalog from session 8 + 10 libraryFilters + 7 footprint + 10 wikidata), `npm run build` succeeds.
+- Decisions made: dropped Clone (replaced by AddPlantForm); kept Export (post-v1 follow-up shipped early).
+- Open issues / blockers:
+  - **Bundle size overshoot**: 269.68 kB JS (78.63 kB gzipped) vs the 213 kB spec §9 budget — over by ~57 kB / +27 %. Real growth from 4 new React components (AddPlantForm, BedsView, BedDetail, LibraryView); no new runtime deps. The 213 kB budget was Plan 1's empty-shell baseline; Plan 2 was always going to add JS for the actual UI. Surfaced to the user; recommendation is to revise the budget in spec §9 rather than chase the original number with React.lazy boilerplate.
+- Next actions:
+  - Plan 3 (Agenda) — `agenda.js` engine + `AgendaView` + mark-task-done wiring. The bed-card "next task" line in BedsView is stubbed; Plan 3 wires it.
+  - Bundle-budget decision per the blocker above.
+
+---
+
 ### 2026-05-28 - Session 9
 
 - Markers: `WB-ARCH-0003` (Plan 2, Tasks S2/S3/S4/M1/M2)
