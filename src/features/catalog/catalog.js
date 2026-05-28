@@ -7,14 +7,6 @@ export const PLANT_CATEGORIES = PLANT_DATABASE.reduce((acc, plant) => {
     return next;
 }, {});
 
-export const STRUCTURES = [
-    { id: 'raised-bed', name: 'Raised Bed', type: 'structure', width: 4, length: 4, subType: 'raised-bed' },
-    { id: 'raised-bed-rect', name: 'Raised Bed (Long)', type: 'structure', width: 2, length: 8, subType: 'raised-bed' },
-    { id: 'raised-bed-round', name: 'Round Raised Bed', type: 'structure', width: 4, length: 4, subType: 'raised-bed-round' },
-    { id: 'garden-plot', name: 'Garden Plot', type: 'structure', width: 10, length: 10, subType: 'garden-plot' },
-    { id: 'garden-plot-small', name: 'Small Plot', type: 'structure', width: 4, length: 8, subType: 'garden-plot' },
-];
-
 const PLANT_BY_ID = PLANT_DATABASE.reduce((acc, plant) => {
     acc[plant.id] = plant;
     return acc;
@@ -36,6 +28,25 @@ export function validatePlantNeighborIds() {
 if (import.meta.env?.DEV) {
     for (const { plantId, unknownId } of validatePlantNeighborIds()) {
         console.error(`[catalog] Unknown neighbor ID "${unknownId}" on plant "${plantId}"`);
+    }
+}
+
+export function validatePlantTimingFields() {
+    const issues = [];
+    for (const plant of PLANT_DATABASE) {
+        if (typeof plant.daysToMaturity !== 'number' || plant.daysToMaturity <= 0) {
+            issues.push({ plantId: plant.id, field: 'daysToMaturity', value: plant.daysToMaturity });
+        }
+        if (typeof plant.startIndoorsWeeksBeforeLastFrost !== 'number' || plant.startIndoorsWeeksBeforeLastFrost < 0) {
+            issues.push({ plantId: plant.id, field: 'startIndoorsWeeksBeforeLastFrost', value: plant.startIndoorsWeeksBeforeLastFrost });
+        }
+    }
+    return issues;
+}
+
+if (import.meta.env?.DEV) {
+    for (const { plantId, field, value } of validatePlantTimingFields()) {
+        console.error(`[catalog] Plant "${plantId}" has invalid ${field}: ${value}`);
     }
 }
 
