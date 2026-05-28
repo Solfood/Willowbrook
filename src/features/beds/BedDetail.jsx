@@ -3,6 +3,7 @@ import { ArrowLeft, Pencil, Trash2, Check, X, Plus } from 'lucide-react';
 import { actions } from '../plan/planReducer.js';
 import { getAllPlants, getPlantsById } from '../catalog/catalog.js';
 import { PLANTING_STATUS_VALUES } from '../plan/planSchema.js';
+import BedFootprint from './BedFootprint.jsx';
 
 export default function BedDetail({ plan, dispatch, bedId, onBack }) {
     const bed = plan.beds.find((b) => b.id === bedId);
@@ -109,9 +110,13 @@ export default function BedDetail({ plan, dispatch, bedId, onBack }) {
             )}
 
             <PlantingsSection plan={plan} dispatch={dispatch} bedId={bed.id} />
+            <BedFootprint
+                bed={bed}
+                plantings={plan.plantings.filter((p) => p.bedId === bed.id && p.status !== 'harvested' && p.status !== 'removed')}
+                plantsById={getPlantsById(plan)}
+            />
             <JournalSection plan={plan} dispatch={dispatch} bedId={bed.id} />
             <HistorySection plan={plan} bedId={bed.id} />
-            <p className="text-sm text-gray-500">Footprint comes in the next task.</p>
         </div>
     );
 }
