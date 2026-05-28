@@ -4,6 +4,24 @@ Append-only continuity log.
 
 ---
 
+### 2026-05-28 - Session 8
+
+- Markers: `WB-ARCH-0003` (Plan 2, Task 1)
+- Objective: Write NEXT.md from the PR #1 merge commit's referenced docs; implement the highest-value small follow-up item.
+- Work completed:
+  - Created `NEXT.md` at repo root: all future-work items from the Plan 2 and Plan 3 spec/plan documents, categorised as small / medium / large with one-line descriptions.
+  - Implemented `getAllPlants(plan)` and `getPlantsById(plan)` in `src/features/catalog/catalog.js` — pure helpers that merge the 28 bundled plants with `plan.customPlants`. These are the foundation every Library and Beds component will build on (Plan 2 Task 1).
+  - Added 5 new tests to `tests/catalog.test.js` covering: bundled-only, appended custom, null/missing-plan tolerance, merged id-map, and custom-plant precedence on collision.
+- Verification: `npm run lint` clean, `npm test` 29/29 pass (up from 24).
+- Decisions made: None — pure data-layer addition, no DEC record required.
+- Open issues/blockers: None.
+- Next actions:
+  - `libraryFilters.js` (NEXT.md S2) — pure search + category-filter over `getAllPlants` output. Small, self-contained, unblocks LibraryView.
+  - `footprint.js` + `BedFootprint.jsx` (NEXT.md M1) — packing algorithm. Can run in parallel with library work.
+  - Plan 2 UI components (L1, L2) — LibraryView, BedsView, BedDetail once pure modules are done.
+
+---
+
 ### 2026-05-27 - Session 7
 
 - Markers: `WB-ARCH-0003` (Foundation plan, Plan 1 of 3)

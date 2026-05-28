@@ -112,6 +112,19 @@ export function getPlantRelationship(basePlantId, neighborPlantId) {
     return 'neutral';
 }
 
+export function getAllPlants(plan) {
+    const custom = Array.isArray(plan?.customPlants) ? plan.customPlants : [];
+    return [...PLANT_DATABASE, ...custom];
+}
+
+export function getPlantsById(plan) {
+    const map = {};
+    for (const p of PLANT_DATABASE) map[p.id] = p;
+    const custom = Array.isArray(plan?.customPlants) ? plan.customPlants : [];
+    for (const p of custom) map[p.id] = p;
+    return map;
+}
+
 export const getPlantImage = (id) => {
     const foundPlant = getPlantById(id);
     if (foundPlant) {
