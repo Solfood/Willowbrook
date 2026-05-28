@@ -1,73 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import GardenSetup from './components/GardenSetup';
-import GardenPlanner from './components/GardenPlanner';
-
-function generateSessionId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
+import AlmanacShell from './components/AlmanacShell';
+import { createEmptyPlan } from './features/plan/planSchema.js';
+import { loadPlanFromStorage } from './features/plan/usePlanIO.js';
 
 class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, info) {
-    console.error('[Willowbrook] Unhandled error:', error, info);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-green-50 flex items-center justify-center p-4">
-          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
-            <p className="text-lg font-semibold text-gray-800 mb-2">Something went wrong.</p>
-            <p className="text-sm text-gray-600 mb-6">Your plan is safe — reload to continue.</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition"
-            >
-              Reload
-            </button>
-          </div>
-        </div>
-      );
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false };
     }
-    return this.props.children;
-  }
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+    componentDidCatch(error, info) {
+        console.error('Willowbrook crashed:', error, info);
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="min-h-screen bg-stone-100 flex items-center justify-center p-6">
+                    <div className="max-w-md bg-white border border-red-200 rounded-xl shadow-sm p-6">
+                        <h1 className="text-xl font-bold text-gray-800 mb-2">Something went wrong</h1>
+                        <p className="text-sm text-gray-600 mb-3">
+                            Willowbrook hit an unexpected error. Reload the page to try again — your auto-saved plan should still be in localStorage.
+                        </p>
+                        <button onClick={() => window.location.reload()} className="px-3 py-1.5 bg-stone-900 text-white rounded text-sm">
+                            Reload
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
 }
 
-function App() {
-  const [garden, setGarden] = useState(null);
+function AppInner() {
+    const [plan, setPlan] = useState(() => loadPlanFromStorage());
 
-  return (
-    <ErrorBoundary>
-      {!garden ? (
-        <GardenSetup
-          onComplete={({ width, length, zone }) => setGarden({ width, length, zone, items: [], sessionId: generateSessionId() })}
-        />
-      ) : (
-        <GardenPlanner
-          key={garden.sessionId}
-          width={garden.width}
-          length={garden.length}
-          zone={garden.zone}
-          initialItems={garden.items}
-          onNewGarden={() => setGarden(null)}
-          onLoadGarden={({ width, length, zone, items }) => {
-            setGarden({ width, length, zone, items, sessionId: generateSessionId() });
-          }}
-        />
-      )}
-    </ErrorBoundary>
-  );
+    const handleSetupComplete = useCallback((garden) => {
+        setPlan(createEmptyPlan(garden));
+    }, []);
+
+    const handleNewGarden = useCallback(() => {
+        if (!window.confirm('Start a new garden? Your current plan will be replaced (auto-save will overwrite).')) return;
+        setPlan(null);
+    }, []);
+
+    if (!plan) {
+        return <GardenSetup onComplete={handleSetupComplete} />;
+    }
+    return <AlmanacShell initialPlan={plan} onNewGarden={handleNewGarden} />;
 }
 
-export default App;
+export default function App() {
+    return (
+        <ErrorBoundary>
+            <AppInner />
+        </ErrorBoundary>
+    );
+}
