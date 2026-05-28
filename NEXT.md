@@ -8,10 +8,10 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 
 | # | Item | Description |
 |---|------|-------------|
-| S1 | **Catalog helpers** (`getAllPlants`, `getPlantsById`) | Pure functions that merge the 28 bundled plants with `plan.customPlants` into a single array or id-map. Unblocks every Library and Beds component. Tests specified in Plan 2 doc Task 1. |
-| S2 | **`libraryFilters.js`** | Pure search + category-filter module for LibraryView. Takes the merged plant list, a query string, and an optional category; returns filtered results. |
-| S3 | **Edit bundled plants (clone workaround)** | Bundled plants are read-only. A small "Clone to My Plants" button on a plant card copies it into `customPlants` so users can edit it. No new reducer actions needed. |
-| S4 | **Library import/export affordance** | An explicit "Export my plants" button that serialises only `customPlants` to a JSON file. The JSON save/load already round-trips them; this just surfaces the action in the UI. |
+| ~~S1~~ | ~~**Catalog helpers** (`getAllPlants`, `getPlantsById`)~~ | ~~Done — session 8.~~ |
+| ~~S2~~ | ~~**`libraryFilters.js`**~~ | ~~Done — this run.~~ |
+| ~~S3~~ | ~~**Edit bundled plants (clone workaround)**~~ | ~~Done — this run.~~ |
+| ~~S4~~ | ~~**Library import/export affordance**~~ | ~~Done — this run (bundled with S3 in LibraryView).~~ |
 
 ---
 
