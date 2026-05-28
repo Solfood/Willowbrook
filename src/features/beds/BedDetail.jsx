@@ -109,8 +109,111 @@ export default function BedDetail({ plan, dispatch, bedId, onBack }) {
             )}
 
             <PlantingsSection plan={plan} dispatch={dispatch} bedId={bed.id} />
-            <p className="text-sm text-gray-500">Footprint, journal and history come in next tasks.</p>
+            <JournalSection plan={plan} dispatch={dispatch} bedId={bed.id} />
+            <HistorySection plan={plan} bedId={bed.id} />
+            <p className="text-sm text-gray-500">Footprint comes in the next task.</p>
         </div>
+    );
+}
+
+function JournalSection({ plan, dispatch, bedId }) {
+    const [text, setText] = useState('');
+    const today = new Date().toISOString().slice(0, 10);
+    const entries = plan.journal
+        .filter((j) => j.bedId === bedId)
+        .slice()
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    function submit(e) {
+        e.preventDefault();
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        dispatch(actions.addJournalEntry({
+            id: crypto.randomUUID(),
+            bedId,
+            date: today,
+            text: trimmed,
+        }));
+        setText('');
+    }
+
+    return (
+        <section>
+            <h3 className="font-semibold mb-2">Journal</h3>
+            <form onSubmit={submit} className="flex gap-2 mb-3">
+                <input type="text" value={text} onChange={(e) => setText(e.target.value)}
+                    placeholder={`Add entry for ${today}…`}
+                    className="flex-1 border rounded px-2 py-1 text-sm" />
+                <button type="submit"
+                    className="px-2 py-1 bg-green-700 text-white rounded text-xs">Add entry</button>
+            </form>
+            {entries.length === 0 ? (
+                <p className="text-xs text-gray-500">No journal entries yet.</p>
+            ) : (
+                <ul className="space-y-1 text-sm">
+                    {entries.map((j) => (
+                        <li key={j.id} className="border-b last:border-0 py-1">
+                            <span className="text-xs text-gray-500">{j.date}</span>
+                            <span className="ml-2">{j.text}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    );
+}
+
+function HistorySection({ plan, bedId }) {
+    const [open, setOpen] = useState(false);
+    const plantsById = getPlantsById(plan);
+    const past = plan.plantings
+        .filter((p) => p.bedId === bedId && (p.status === 'harvested' || p.status === 'removed'))
+        .slice()
+        .sort((a, b) => {
+            if (a.datePlanted === b.datePlanted) return a.id.localeCompare(b.id);
+            if (a.datePlanted === null) return 1;
+            if (b.datePlanted === null) return -1;
+            return a.datePlanted < b.datePlanted ? 1 : -1;
+        });
+
+    return (
+        <section>
+            <button onClick={() => setOpen((o) => !o)}
+                className="font-semibold flex items-center gap-1 text-sm">
+                {open ? '▾' : '▸'} History ({past.length})
+            </button>
+            {open && (
+                <div className="overflow-x-auto mt-2">
+                    <table className="min-w-full text-sm border-collapse">
+                        <thead>
+                            <tr className="text-left text-xs text-gray-600 border-b">
+                                <th className="py-1 pr-2">Icon</th>
+                                <th className="py-1 pr-2">Plant</th>
+                                <th className="py-1 pr-2">Qty</th>
+                                <th className="py-1 pr-2">Status</th>
+                                <th className="py-1 pr-2">Date planted</th>
+                                <th className="py-1 pr-2">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {past.length === 0 && (
+                                <tr><td colSpan="6" className="text-xs text-gray-500 py-2">No history yet.</td></tr>
+                            )}
+                            {past.map((p) => (
+                                <tr key={p.id} className="border-b last:border-0 text-gray-700">
+                                    <td className="py-1 pr-2 text-xl">{plantsById[p.plantId]?.icon ?? '?'}</td>
+                                    <td className="py-1 pr-2">{plantsById[p.plantId]?.name ?? p.plantId}</td>
+                                    <td className="py-1 pr-2">{p.quantity}</td>
+                                    <td className="py-1 pr-2">{p.status.replace(/_/g, ' ')}</td>
+                                    <td className="py-1 pr-2">{p.datePlanted ?? '—'}</td>
+                                    <td className="py-1 pr-2">{p.notes}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </section>
     );
 }
 
