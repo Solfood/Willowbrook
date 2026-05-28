@@ -8,10 +8,10 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 
 | # | Item | Description |
 |---|------|-------------|
-| S1 | **Catalog helpers** (`getAllPlants`, `getPlantsById`) | Pure functions that merge the 28 bundled plants with `plan.customPlants` into a single array or id-map. Unblocks every Library and Beds component. Tests specified in Plan 2 doc Task 1. |
-| S2 | **`libraryFilters.js`** | Pure search + category-filter module for LibraryView. Takes the merged plant list, a query string, and an optional category; returns filtered results. |
-| S3 | **Edit bundled plants (clone workaround)** | Bundled plants are read-only. A small "Clone to My Plants" button on a plant card copies it into `customPlants` so users can edit it. No new reducer actions needed. |
-| S4 | **Library import/export affordance** | An explicit "Export my plants" button that serialises only `customPlants` to a JSON file. The JSON save/load already round-trips them; this just surfaces the action in the UI. |
+| ~~S1~~ | ~~**Catalog helpers** (`getAllPlants`, `getPlantsById`)~~ | ~~Done — session 8.~~ |
+| ~~S2~~ | ~~**`libraryFilters.js`**~~ | ~~Done — this run.~~ |
+| ~~S3~~ | ~~**Edit bundled plants (clone workaround)**~~ | ~~Done — this run.~~ |
+| ~~S4~~ | ~~**Library import/export affordance**~~ | ~~Done — this run (bundled with S3 in LibraryView).~~ |
 
 ---
 
@@ -19,8 +19,8 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 
 | # | Item | Description |
 |---|------|-------------|
-| M1 | **`footprint.js` + `BedFootprint.jsx`** | Row-major packing algorithm that fills a bed grid with plant icons; renders as a `<pre>` emoji grid with legend and overflow warning. Pure module with unit tests. |
-| M2 | **`wikidataLookup.js`** | Fetch-and-normalize helper for the Wikidata SPARQL endpoint. Returns candidate plant records (name, common names, GBIF taxon ID) for a free-text query. DI-friendly for testing. |
+| ~~M1~~ | ~~**`footprint.js` + `BedFootprint.jsx`**~~ | ~~Done — this run.~~ |
+| ~~M2~~ | ~~**`wikidataLookup.js`**~~ | ~~Done — this run.~~ |
 | M3 | **Year-over-year crop rotation hints** | The data model already stores `history` per bed. A pure function can flag beds where the same plant family appears in consecutive years. Read-only badge on BedDetail. |
 | M4 | **Mobile-friendly Agenda view** | Read-only weekly task list optimised for narrow viewports. The data is all local; no backend needed. Editing interactions deferred. |
 
@@ -42,4 +42,21 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 
 ## Recommended next run
 
-**S1 → S2 → M1** in sequence: the catalog helpers feed the library filters, and the footprint module is self-contained. Together they clear the entire pure-logic layer for Plan 2 so the UI components (L1, L2) can be assembled in one further run.
+**M3 → M4** then begin L1 or L2. All pure-logic modules for Plan 2 are now done; the next run should assemble the full Plan 2 UI (LibraryView AddPlantForm, BedsView, BedDetail).
+
+---
+
+## Stopped at (session 9 — 2026-05-28)
+
+**Items completed (5/5):**
+1. S2 — `libraryFilters.js` (pure filter + category helpers, 12 tests)
+2. S3 — Clone to My Plants button in LibraryView
+3. S4 — Export My Plants JSON download in LibraryView (bundled with S3)
+4. M1 — `footprint.js` row-major packing + `BedFootprint.jsx` emoji `<pre>` grid (12 tests)
+5. M2 — `wikidataLookup.js` Wikidata SPARQL fetch-and-normalise (11 tests)
+
+**Items skipped:** M3, M4, L1–L7 — stop limit reached at 5 substantive items.
+
+**Items added during run:** None.
+
+**Blockers discovered:** None.

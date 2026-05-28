@@ -4,6 +4,26 @@ Append-only continuity log.
 
 ---
 
+### 2026-05-28 - Session 9
+
+- Markers: `WB-ARCH-0003` (Plan 2, Tasks S2/S3/S4/M1/M2)
+- Objective: Work through NEXT.md small items (S2→S4) then medium items (M1→M2).
+- Work completed (5 of 5 stop limit):
+  - **S2** — `src/features/library/libraryFilters.js`: `filterPlants(plants, { query, category })` and `getCategories(plants)` pure functions. 12 unit tests in `tests/libraryFilters.test.js`.
+  - **S3 + S4** — `src/features/library/LibraryView.jsx` (replaces placeholder): filterable plant card grid using `filterPlants`/`getCategories`/`getAllPlants`. Bundled plant cards expose "Clone to My Plants" (dispatches `ADD_CUSTOM_PLANT` — no new reducer action). "Export my plants" button serialises only `customPlants` to JSON download. Both affordances bundled in one component.
+  - **M1** — `src/features/beds/footprint.js`: `computeFootprint(bed, plantings, plantsById)` row-major packing (each plant claims cells ∝ spacing²) + `buildLegend(grid, plantsById)`. `src/features/beds/BedFootprint.jsx`: `<pre>` emoji grid with legend list and overflow warning banner. 12 unit tests in `tests/footprint.test.js`.
+  - **M2** — `src/features/catalog/wikidataLookup.js`: `lookupPlants(query, { fetchFn, timeoutMs })` + `normaliseSparqlResults(sparqlJson)`. DI fetchFn stub keeps all 11 tests network-free. 8 s AbortController timeout.
+- Verification: `npm run lint` clean, `npm test` 63/63 pass (up from 41).
+- Decisions made: None — all pure-module / small UI additions, no DEC records required.
+- Open issues/blockers: None.
+- Next actions:
+  - **M3** — Year-over-year crop rotation hints (flag beds with same plant family in consecutive years; read-only badge on BedDetail).
+  - **M4** — Mobile-friendly AgendaView (read-only weekly task list; data is local).
+  - **L1** — LibraryView full Plan 2 scope: AddPlantForm drawer with manual entry + Wikidata lookup (now unblocked by M2).
+  - **L2** — BedsView + BedDetail: bed cards, Add Bed modal, plantings table, BedFootprint preview, journal (now unblocked by M1).
+
+---
+
 ### 2026-05-28 - Session 8
 
 - Markers: `WB-ARCH-0003` (Plan 2, Task 1)
