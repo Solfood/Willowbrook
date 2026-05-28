@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Pencil, Trash2, Check, X } from 'lucide-react';
+import { ArrowLeft, Pencil, Trash2, Check, X, Plus } from 'lucide-react';
 import { actions } from '../plan/planReducer.js';
+import { getAllPlants, getPlantsById } from '../catalog/catalog.js';
+import { PLANTING_STATUS_VALUES } from '../plan/planSchema.js';
 
 export default function BedDetail({ plan, dispatch, bedId, onBack }) {
     const bed = plan.beds.find((b) => b.id === bedId);
@@ -106,7 +108,192 @@ export default function BedDetail({ plan, dispatch, bedId, onBack }) {
                 </header>
             )}
 
-            <p className="text-sm text-gray-500">Plantings, footprint, journal and history come in next tasks.</p>
+            <PlantingsSection plan={plan} dispatch={dispatch} bedId={bed.id} />
+            <p className="text-sm text-gray-500">Footprint, journal and history come in next tasks.</p>
         </div>
+    );
+}
+
+function PlantingsSection({ plan, dispatch, bedId }) {
+    const allPlants = getAllPlants(plan);
+    const plantsById = getPlantsById(plan);
+    const current = plan.plantings.filter(
+        (p) => p.bedId === bedId && p.status !== 'harvested' && p.status !== 'removed'
+    );
+
+    const [adding, setAdding] = useState(false);
+
+    return (
+        <section>
+            <h3 className="font-semibold mb-2">Current plantings</h3>
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-sm border-collapse">
+                    <thead>
+                        <tr className="text-left text-xs text-gray-600 border-b">
+                            <th className="py-1 pr-2">Icon</th>
+                            <th className="py-1 pr-2">Plant</th>
+                            <th className="py-1 pr-2">Qty</th>
+                            <th className="py-1 pr-2">Status</th>
+                            <th className="py-1 pr-2">Date planted</th>
+                            <th className="py-1 pr-2">Notes</th>
+                            <th className="py-1 pr-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {current.length === 0 && (
+                            <tr><td colSpan="7" className="text-xs text-gray-500 py-2">No plantings yet.</td></tr>
+                        )}
+                        {current.map((p) => (
+                            <PlantingRow key={p.id} planting={p} plant={plantsById[p.plantId]} dispatch={dispatch} />
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {!adding && (
+                <button onClick={() => setAdding(true)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs px-2 py-1 border rounded hover:bg-gray-50">
+                    <Plus size={12} /> Add planting
+                </button>
+            )}
+            {adding && (
+                <AddPlantingRow bedId={bedId} allPlants={allPlants} dispatch={dispatch}
+                    onDone={() => setAdding(false)} />
+            )}
+        </section>
+    );
+}
+
+function PlantingRow({ planting, plant, dispatch }) {
+    const [confirmRemove, setConfirmRemove] = useState(false);
+    const [draftQty, setDraftQty] = useState(String(planting.quantity));
+    const [draftNotes, setDraftNotes] = useState(planting.notes ?? '');
+
+    function commitQty() {
+        const n = parseInt(draftQty, 10);
+        if (!Number.isFinite(n) || n < 1) {
+            setDraftQty(String(planting.quantity));
+            return;
+        }
+        if (n !== planting.quantity) dispatch(actions.updatePlanting(planting.id, { quantity: n }));
+    }
+
+    function commitNotes() {
+        if (draftNotes !== (planting.notes ?? '')) dispatch(actions.updatePlanting(planting.id, { notes: draftNotes }));
+    }
+
+    return (
+        <tr className="border-b last:border-0">
+            <td className="py-1 pr-2 text-xl">{plant?.icon ?? '?'}</td>
+            <td className="py-1 pr-2">{plant?.name ?? planting.plantId}</td>
+            <td className="py-1 pr-2">
+                <input type="number" min="1" value={draftQty}
+                    onChange={(e) => setDraftQty(e.target.value)}
+                    onBlur={commitQty}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className="border rounded px-1 py-0.5 w-16" />
+            </td>
+            <td className="py-1 pr-2">
+                <select value={planting.status}
+                    onChange={(e) => dispatch(actions.updatePlanting(planting.id, { status: e.target.value }))}
+                    className="border rounded px-1 py-0.5">
+                    {PLANTING_STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                </select>
+            </td>
+            <td className="py-1 pr-2">
+                <input type="date" value={planting.datePlanted ?? ''}
+                    onChange={(e) => dispatch(actions.updatePlanting(planting.id, { datePlanted: e.target.value || null }))}
+                    className="border rounded px-1 py-0.5" />
+            </td>
+            <td className="py-1 pr-2">
+                <input type="text" value={draftNotes}
+                    onChange={(e) => setDraftNotes(e.target.value)}
+                    onBlur={commitNotes}
+                    className="border rounded px-1 py-0.5 w-40" />
+            </td>
+            <td className="py-1 pr-2">
+                {!confirmRemove ? (
+                    <button onClick={() => setConfirmRemove(true)}
+                        className="text-xs text-gray-500 hover:text-red-600">×</button>
+                ) : (
+                    <span className="text-xs">
+                        Remove?
+                        <button onClick={() => dispatch(actions.removePlanting(planting.id))}
+                            className="ml-1 px-1 bg-red-600 text-white rounded">Yes</button>
+                        <button onClick={() => setConfirmRemove(false)}
+                            className="ml-1 px-1 border rounded">No</button>
+                    </span>
+                )}
+            </td>
+        </tr>
+    );
+}
+
+function AddPlantingRow({ bedId, allPlants, dispatch, onDone }) {
+    const [plantId, setPlantId] = useState(allPlants[0]?.id ?? '');
+    const [quantity, setQuantity] = useState('1');
+    const [status, setStatus] = useState('planned');
+    const [datePlanted, setDatePlanted] = useState('');
+    const [notes, setNotes] = useState('');
+    const [error, setError] = useState(null);
+
+    function submit(e) {
+        e.preventDefault();
+        const qty = parseInt(quantity, 10);
+        if (!plantId) { setError('Pick a plant.'); return; }
+        if (!Number.isFinite(qty) || qty < 1) { setError('Quantity ≥ 1.'); return; }
+        dispatch(actions.addPlanting({
+            id: crypto.randomUUID(),
+            bedId,
+            plantId,
+            quantity: qty,
+            status,
+            datePlanted: datePlanted || null,
+            notes,
+        }));
+        setQuantity('1');
+        setStatus('planned');
+        setDatePlanted('');
+        setNotes('');
+        setError(null);
+    }
+
+    return (
+        <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 text-sm border-t pt-3">
+            <label>
+                <span className="block text-xs text-gray-600">Plant</span>
+                <select value={plantId} onChange={(e) => setPlantId(e.target.value)}
+                    className="border rounded px-1 py-0.5" autoFocus>
+                    {allPlants.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.name}</option>)}
+                </select>
+            </label>
+            <label>
+                <span className="block text-xs text-gray-600">Qty</span>
+                <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)}
+                    className="border rounded px-1 py-0.5 w-16" />
+            </label>
+            <label>
+                <span className="block text-xs text-gray-600">Status</span>
+                <select value={status} onChange={(e) => setStatus(e.target.value)}
+                    className="border rounded px-1 py-0.5">
+                    {PLANTING_STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                </select>
+            </label>
+            <label>
+                <span className="block text-xs text-gray-600">Date</span>
+                <input type="date" value={datePlanted} onChange={(e) => setDatePlanted(e.target.value)}
+                    className="border rounded px-1 py-0.5" />
+            </label>
+            <label className="flex-1 min-w-40">
+                <span className="block text-xs text-gray-600">Notes</span>
+                <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
+                    className="border rounded px-1 py-0.5 w-full" />
+            </label>
+            <button type="submit"
+                className="px-2 py-1 bg-green-700 text-white rounded text-xs">Add</button>
+            <button type="button" onClick={onDone}
+                className="px-2 py-1 border rounded text-xs">Done</button>
+            {error && <p className="text-xs text-red-600 w-full">{error}</p>}
+        </form>
     );
 }
