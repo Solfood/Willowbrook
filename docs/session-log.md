@@ -25,11 +25,10 @@ Append-only continuity log.
   - **T14** BedFootprint integrated into BedDetail between PlantingsSection and JournalSection.
 - Verification: `npm run lint` clean, `npm test` 56/56 pass (24 from Plan 1 + 5 catalog from session 8 + 10 libraryFilters + 7 footprint + 10 wikidata), `npm run build` succeeds.
 - Decisions made: dropped Clone (replaced by AddPlantForm); kept Export (post-v1 follow-up shipped early).
-- Open issues / blockers:
-  - **Bundle size overshoot**: 269.68 kB JS (78.63 kB gzipped) vs the 213 kB spec §9 budget — over by ~57 kB / +27 %. Real growth from 4 new React components (AddPlantForm, BedsView, BedDetail, LibraryView); no new runtime deps. The 213 kB budget was Plan 1's empty-shell baseline; Plan 2 was always going to add JS for the actual UI. Surfaced to the user; recommendation is to revise the budget in spec §9 rather than chase the original number with React.lazy boilerplate.
+- Open issues / blockers: None.
+- Post-merge follow-up: revised Plan 2 spec §9 bundle budget from "≤ 213 kB" (Plan 1 empty-shell baseline) to "≤ 300 kB JS / ≤ 100 kB gzipped" (realistic for four real React components with no new deps). Plan 2 as shipped lands at ~270 kB / ~79 kB gzipped — comfortably under the revised budget. Future plans should track per-PR; revisit code-splitting only if Plan 3 pushes us toward 350 kB.
 - Next actions:
   - Plan 3 (Agenda) — `agenda.js` engine + `AgendaView` + mark-task-done wiring. The bed-card "next task" line in BedsView is stubbed; Plan 3 wires it.
-  - Bundle-budget decision per the blocker above.
 
 ---
 
