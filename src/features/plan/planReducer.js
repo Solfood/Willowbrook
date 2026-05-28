@@ -61,7 +61,7 @@ function commit(state, nextPlan) {
     };
 }
 
-export function plannerReducer(state, action) {
+export function planReducer(state, action) {
     const plan = state.plan;
     switch (action.type) {
         case actionTypes.ADD_BED:

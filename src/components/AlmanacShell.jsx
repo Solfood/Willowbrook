@@ -1,10 +1,10 @@
 import React, { useReducer, useState } from 'react';
 import { CalendarDays, Sprout, Library, Save, Upload, Undo, Redo, Plus } from 'lucide-react';
-import { plannerReducer, createInitialState, actions } from '../features/plan/planReducer.js';
+import { planReducer, createInitialState, actions } from '../features/plan/planReducer.js';
 import { usePlanIO } from '../features/plan/usePlanIO.js';
-import AgendaView from './AgendaView';
-import BedsView from './BedsView';
-import LibraryView from './LibraryView';
+import AgendaView from '../features/agenda/AgendaView';
+import BedsView from '../features/beds/BedsView';
+import LibraryView from '../features/library/LibraryView';
 
 const VIEWS = [
     { id: 'agenda', label: 'Agenda', icon: CalendarDays },
@@ -13,7 +13,7 @@ const VIEWS = [
 ];
 
 export default function AlmanacShell({ initialPlan, onNewGarden }) {
-    const [state, dispatch] = useReducer(plannerReducer, createInitialState(initialPlan));
+    const [state, dispatch] = useReducer(planReducer, createInitialState(initialPlan));
     const [view, setView] = useState('agenda');
     const [loadError, setLoadError] = useState(null);
     const { handleSave, handleLoad } = usePlanIO({ plan: state.plan, dispatch, setLoadError });

@@ -7,14 +7,6 @@ export const PLANT_CATEGORIES = PLANT_DATABASE.reduce((acc, plant) => {
     return next;
 }, {});
 
-export const STRUCTURES = [
-    { id: 'raised-bed', name: 'Raised Bed', type: 'structure', width: 4, length: 4, subType: 'raised-bed' },
-    { id: 'raised-bed-rect', name: 'Raised Bed (Long)', type: 'structure', width: 2, length: 8, subType: 'raised-bed' },
-    { id: 'raised-bed-round', name: 'Round Raised Bed', type: 'structure', width: 4, length: 4, subType: 'raised-bed-round' },
-    { id: 'garden-plot', name: 'Garden Plot', type: 'structure', width: 10, length: 10, subType: 'garden-plot' },
-    { id: 'garden-plot-small', name: 'Small Plot', type: 'structure', width: 4, length: 8, subType: 'garden-plot' },
-];
-
 const PLANT_BY_ID = PLANT_DATABASE.reduce((acc, plant) => {
     acc[plant.id] = plant;
     return acc;
