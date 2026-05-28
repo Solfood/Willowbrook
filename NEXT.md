@@ -20,7 +20,7 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 | # | Item | Description |
 |---|------|-------------|
 | ~~M1~~ | ~~**`footprint.js` + `BedFootprint.jsx`**~~ | ~~Done — this run.~~ |
-| M2 | **`wikidataLookup.js`** | Fetch-and-normalize helper for the Wikidata SPARQL endpoint. Returns candidate plant records (name, common names, GBIF taxon ID) for a free-text query. DI-friendly for testing. |
+| ~~M2~~ | ~~**`wikidataLookup.js`**~~ | ~~Done — this run.~~ |
 | M3 | **Year-over-year crop rotation hints** | The data model already stores `history` per bed. A pure function can flag beds where the same plant family appears in consecutive years. Read-only badge on BedDetail. |
 | M4 | **Mobile-friendly Agenda view** | Read-only weekly task list optimised for narrow viewports. The data is all local; no backend needed. Editing interactions deferred. |
 
