@@ -1,9 +1,18 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Search } from 'lucide-react';
 import { actions } from '../plan/planReducer.js';
 import { getAllPlants } from '../catalog/catalog.js';
+import { searchPlantsByName } from './wikidataLookup.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function pickCategoryFromDescription(desc) {
+    const d = String(desc || '').toLowerCase();
+    if (d.includes('vegetable')) return 'vegetables';
+    if (d.includes('herb')) return 'herbs';
+    if (d.includes('flower')) return 'flowers';
+    return null;
+}
 
 function blankForm() {
     return {
@@ -45,8 +54,30 @@ export default function AddPlantForm({ plan, dispatch, editPlantId = null, onClo
     const [form, setForm] = useState(editTarget ? formFromPlant(editTarget) : blankForm());
     const [categoryMode, setCategoryMode] = useState('existing');
     const [errors, setErrors] = useState({});
+    const [lookup, setLookup] = useState({ status: 'idle', results: [], error: null });
+    const [usedCandidate, setUsedCandidate] = useState(false);
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+    async function handleLookup() {
+        if (!form.name.trim()) {
+            setLookup({ status: 'error', results: [], error: 'Enter a plant name to search.' });
+            return;
+        }
+        setLookup({ status: 'loading', results: [], error: null });
+        const r = await searchPlantsByName(form.name);
+        if (r.ok) setLookup({ status: 'ok', results: r.results, error: null });
+        else setLookup({ status: 'error', results: [], error: r.error });
+    }
+
+    function applyCandidate(c) {
+        const patch = { name: c.name };
+        const inferred = pickCategoryFromDescription(c.description);
+        if (inferred && !form.category) patch.category = inferred;
+        set(patch);
+        setUsedCandidate(true);
+        setLookup({ status: 'idle', results: [], error: null });
+    }
 
     function validate() {
         const e = {};
@@ -99,6 +130,39 @@ export default function AddPlantForm({ plan, dispatch, editPlantId = null, onClo
                 </header>
 
                 <form onSubmit={handleSubmit} className="p-4 space-y-4 text-sm">
+                    <div className="border rounded p-3 bg-gray-50">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-gray-700">Optional: pre-fill from Wikidata</span>
+                            <button type="button" onClick={handleLookup}
+                                disabled={lookup.status === 'loading'}
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 border rounded bg-white hover:bg-gray-100 disabled:opacity-50">
+                                <Search size={12} /> {lookup.status === 'loading' ? 'Searching…' : 'Look up online'}
+                            </button>
+                        </div>
+                        {lookup.status === 'error' && (
+                            <p className="text-xs text-red-600 mb-1">{lookup.error}</p>
+                        )}
+                        {lookup.status === 'ok' && lookup.results.length === 0 && (
+                            <p className="text-xs text-gray-600">No matches. Fill in by hand.</p>
+                        )}
+                        {lookup.status === 'ok' && lookup.results.length > 0 && (
+                            <ul className="space-y-1">
+                                {lookup.results.map((c) => (
+                                    <li key={c.qid}>
+                                        <button type="button" onClick={() => applyCandidate(c)}
+                                            className="text-left text-xs w-full px-2 py-1 border rounded bg-white hover:bg-green-50">
+                                            <span className="font-medium">{c.name}</span>
+                                            {c.description && <span className="text-gray-600"> — {c.description}</span>}
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {usedCandidate && (
+                            <p className="text-[10px] text-gray-500 mt-2">data via Wikidata (CC0)</p>
+                        )}
+                    </div>
+
                     <Field label="Name" error={errors.name}>
                         <input type="text" value={form.name} onChange={(e) => set({ name: e.target.value })}
                             className="border rounded px-2 py-1 w-full" />
