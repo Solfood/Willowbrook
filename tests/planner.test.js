@@ -6,7 +6,7 @@ import {
     plannerReducer,
 } from '../src/features/planner/planReducer.js';
 import { clampPlanItemsToBounds, parseGardenPlanText } from '../src/features/planner/planSchema.js';
-import { validatePlantNeighborIds, getPlantingWindow } from '../src/features/catalog/catalog.js';
+import { validatePlantNeighborIds, getPlantingWindow, validatePlantTimingFields } from '../src/features/catalog/catalog.js';
 
 function commit(state, items) {
     return plannerReducer(state, {
@@ -284,4 +284,9 @@ test('clampPlanItemsToBounds clamps out-of-bounds structures based on size', () 
     // 10ft world is 300px; structure 4ft x 2ft => 120px x 60px.
     assert.equal(result.items[0].x, 180);
     assert.equal(result.items[0].y, 240);
+});
+
+test('every bundled plant has valid daysToMaturity and startIndoorsWeeksBeforeLastFrost', () => {
+    const issues = validatePlantTimingFields();
+    assert.deepEqual(issues, []);
 });

@@ -39,6 +39,25 @@ if (import.meta.env?.DEV) {
     }
 }
 
+export function validatePlantTimingFields() {
+    const issues = [];
+    for (const plant of PLANT_DATABASE) {
+        if (typeof plant.daysToMaturity !== 'number' || plant.daysToMaturity <= 0) {
+            issues.push({ plantId: plant.id, field: 'daysToMaturity', value: plant.daysToMaturity });
+        }
+        if (typeof plant.startIndoorsWeeksBeforeLastFrost !== 'number' || plant.startIndoorsWeeksBeforeLastFrost < 0) {
+            issues.push({ plantId: plant.id, field: 'startIndoorsWeeksBeforeLastFrost', value: plant.startIndoorsWeeksBeforeLastFrost });
+        }
+    }
+    return issues;
+}
+
+if (import.meta.env?.DEV) {
+    for (const { plantId, field, value } of validatePlantTimingFields()) {
+        console.error(`[catalog] Plant "${plantId}" has invalid ${field}: ${value}`);
+    }
+}
+
 export function getPlantById(id) {
     return PLANT_BY_ID[id] || null;
 }
