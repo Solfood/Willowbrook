@@ -42,4 +42,21 @@ The merged PR shipped Plan 1 (data layer + AlmanacShell skeleton) and the full s
 
 ## Recommended next run
 
-**S1 → S2 → M1** in sequence: the catalog helpers feed the library filters, and the footprint module is self-contained. Together they clear the entire pure-logic layer for Plan 2 so the UI components (L1, L2) can be assembled in one further run.
+**M3 → M4** then begin L1 or L2. All pure-logic modules for Plan 2 are now done; the next run should assemble the full Plan 2 UI (LibraryView AddPlantForm, BedsView, BedDetail).
+
+---
+
+## Stopped at (session 9 — 2026-05-28)
+
+**Items completed (5/5):**
+1. S2 — `libraryFilters.js` (pure filter + category helpers, 12 tests)
+2. S3 — Clone to My Plants button in LibraryView
+3. S4 — Export My Plants JSON download in LibraryView (bundled with S3)
+4. M1 — `footprint.js` row-major packing + `BedFootprint.jsx` emoji `<pre>` grid (12 tests)
+5. M2 — `wikidataLookup.js` Wikidata SPARQL fetch-and-normalise (11 tests)
+
+**Items skipped:** M3, M4, L1–L7 — stop limit reached at 5 substantive items.
+
+**Items added during run:** None.
+
+**Blockers discovered:** None.
