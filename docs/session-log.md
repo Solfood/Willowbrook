@@ -4,6 +4,30 @@ Append-only continuity log.
 
 ---
 
+### 2026-05-27 - Session 7
+
+- Markers: `WB-ARCH-0003` (Foundation plan, Plan 1 of 3)
+- Objective: Stand up v2 data layer, new GardenSetup with frost dates, AlmanacShell with empty views. Delete the freeform canvas.
+- Work completed:
+  - DEC-0002 recorded; marker flipped to IN_PROGRESS.
+  - `src/features/plan/planSchema.js`: SCHEMA_VERSION=2, createEmptyPlan, validatePlanFile. v1 files explicitly rejected.
+  - `src/features/plan/planReducer.js`: full v2 action set (ADD_BED, UPDATE_BED, REMOVE_BED, ADD_PLANTING, UPDATE_PLANTING, REMOVE_PLANTING, ADD_JOURNAL_ENTRY, ADD_CUSTOM_PLANT, UPDATE_CUSTOM_PLANT, MARK_TASK_DONE, LOAD_PLAN, UNDO, REDO). History cap 50.
+  - `src/features/plan/usePlanIO.js`: localStorage auto-save + JSON import/export + v1 rejection.
+  - `src/features/catalog/frostDates.js`: pure ZIP→lat/lon→farmsense fetch with 8 s timeout.
+  - `src/features/catalog/plantDatabase.js`: added daysToMaturity + startIndoorsWeeksBeforeLastFrost to all 28 plants.
+  - `src/components/GardenSetup.jsx`: dropped width/length; added frost-date fetch + manual override. Default frost dates compute from current year.
+  - `src/components/AlmanacShell.jsx` + Agenda/Beds/Library placeholders: shell skeleton with three navigable views.
+  - `src/App.jsx`: restore from localStorage on boot; ErrorBoundary preserved.
+  - Deleted: GardenPlanner.jsx, Sidebar.jsx, src/features/planner/, tests/planner.test.js, tests/keyboardShortcuts.test.js.
+- Verification: `npm run lint` clean, `npm test` 24/24 pass (planSchema 7, planReducer 11, frostDates 4, catalog 2), `npm run build` succeeds (213 kB JS, down from 276 kB).
+- Decisions made: DEC-0002 (Almanac product redirection, schema-v2 clean break).
+- Open issues/blockers: None.
+- Next actions:
+  - Plan 2 — Library + Beds (LibraryView, AddPlantForm, BedsView, BedDetail, BedFootprint, footprint.js).
+  - Plan 3 — Agenda (agenda.js engine, AgendaView, mark-task-done flow).
+
+---
+
 ### 2026-04-30 - Session 6
 
 - Markers: `WB-ARCH-0002`
