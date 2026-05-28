@@ -19,12 +19,15 @@ Append-only continuity log.
   - `src/components/AlmanacShell.jsx` + Agenda/Beds/Library placeholders: shell skeleton with three navigable views.
   - `src/App.jsx`: restore from localStorage on boot; ErrorBoundary preserved.
   - Deleted: GardenPlanner.jsx, Sidebar.jsx, src/features/planner/, tests/planner.test.js, tests/keyboardShortcuts.test.js.
-- Verification: `npm run lint` clean, `npm test` 24/24 pass (planSchema 7, planReducer 11, frostDates 4, catalog 2), `npm run build` succeeds (213 kB JS, down from 276 kB).
+- Post-task cleanup (commit `6bd9eee`): moved Agenda/Beds/Library views from `src/components/` into their spec-defined `src/features/{agenda,beds,library}/` homes; renamed `plannerReducer` → `planReducer` (v1 artifact); removed unused `STRUCTURES` export from `catalog.js`.
+- Verification: `npm run lint` clean, `npm test` 24/24 pass (planSchema 7, planReducer 11, frostDates 4, catalog 2), `npm run build` succeeds (213 kB JS, down from 276 kB). User ran `npm run dev` and confirmed setup → empty-shell flow works.
 - Decisions made: DEC-0002 (Almanac product redirection, schema-v2 clean break).
 - Open issues/blockers: None.
+- Outstanding user request (capture for Plan 2 brainstorm):
+  - Source the plant library from an external API rather than (or in addition to) the 28 hardcoded bundled plants — the same way frost dates were resolved from `farmsense.net`. Candidate APIs to evaluate: Perenual.com (modern, free tier rate-limited), Trefle.io (open-source plant DB, hosting has been spotty), OpenFarm.cc (community-curated), USDA PLANTS Database (US-centric, no formal API), Wikidata SPARQL. Decision needs to land in Plan 2 brainstorm: which API, what data we actually need from it, offline/cached behaviour, and how user-added custom plants coexist with API-sourced ones.
 - Next actions:
-  - Plan 2 — Library + Beds (LibraryView, AddPlantForm, BedsView, BedDetail, BedFootprint, footprint.js).
-  - Plan 3 — Agenda (agenda.js engine, AgendaView, mark-task-done flow).
+  - **New session** — brainstorm + write Plan 2 (Library + Beds). Start by deciding the plant-data source (see Outstanding user request above) before designing `LibraryView` and `AddPlantForm`. Then `BedsView`, `BedDetail`, `BedFootprint`, and the pure `footprint.js` packing module.
+  - Plan 3 — Agenda (`agenda.js` engine, `AgendaView`, mark-task-done flow). Unchanged from Plan 1 sign-off.
 
 ---
 
