@@ -4,6 +4,33 @@ Append-only continuity log.
 
 ---
 
+### 2026-05-29 - Session 11 (Plan 3 — Agenda)
+
+- Markers: `WB-ARCH-0003` (Plan 3 of 3 — Agenda engine + view + bed-card next-task line)
+- Objective: Ship the Agenda track from foundation spec §5 and the new Plan 3 design spec (`docs/superpowers/specs/2026-05-29-willowbrook-almanac-plan-3-design.md`). User said "push as far as you can" before stepping away; spec and plan were authored autonomously from the foundation §5 sketch and the touchpoints agreed during Plan 2 brainstorming.
+- Work completed (6 tasks, one commit each, all TDD red→green):
+  - **Spec + Plan** — `2026-05-29-willowbrook-almanac-plan-3-design.md` + `2026-05-29-almanac-plan-3-agenda.md`. Deferred `succession` action and the "could plant now" toggle per YAGNI.
+  - **T1** `src/features/agenda/agenda.js`: date helpers (`isoToday`, `addDays`, `daysBetween`) with local-date semantics + 6 tests.
+  - **T2** `computeTaskForPlanting`: per-status rules for `start_indoors` / `direct_sow` / `transplant` / `harvest`; terminal states (`harvested`, `removed`) and "no datePlanted" cases return null. 9 tests.
+  - **T3** `computeAgenda`: windowing (`±7 day grace`, `+14 day horizon`), three-bucket classification, deterministic sort by date then `plantingId`, missing-bed fallback `(no bed)`. Task shape carries `plantId` so views can look up icons cleanly. 9 tests.
+  - **T4** `src/features/agenda/AgendaView.jsx` rewritten: three sections with colored pill headers, plant icon + `plant — bed` headline + italic reason + formatted date + Mark done button dispatching `MARK_TASK_DONE`. Empty states for "no plantings yet" (CTA to Beds) and "nothing scheduled in window". `AlmanacShell` passes `onSwitchView` so the empty-state CTA works.
+  - **T5** `src/features/beds/BedsView.jsx`: each card now reads `Next: <Action> <Plant> — <ShortDate>`, indexed from `computeAgenda` (overdue-first via concat); falls back to `Next: (nothing scheduled)`.
+- Verification: `npm test` 80/80 pass (up from 56 — added 24 agenda tests). `npm run lint` clean. `npm run build` produces 276.29 kB JS / 80.64 kB gzipped — comfortably under the revised 300 kB / 100 kB budget from Plan 2 spec §9.
+- Decisions made:
+  - **Task shape carries `plantId`** (not just `plantName`) so the AgendaView icon lookup is `plantsById[task.plantId].icon` instead of a name search. Documented inline in the plan's T4 note before deciding; no spec amendment needed because §4.1 lists Task's public fields as illustrative.
+  - **Transplant date overwrites `datePlanted`**: acknowledged simplification (spec §8.2). A future schema bump could split into `dateSown` vs `dateTransplanted`.
+  - **No reducer changes** — `MARK_TASK_DONE` was already wired in Plan 1.
+  - **Bundle budget**: Plan 3 added ~7 kB JS / ~2 kB gzipped, well inside the revised budget. No code splitting needed.
+- Open issues / blockers: None.
+- Pending user action on return:
+  - **Manual smoke test** of Plan 2 + Plan 3 together (deferred from end of Session 10 when user stepped away). Suggested flow: setup garden → add bed → add 2-3 plantings in mixed statuses → confirm Agenda surfaces tasks with correct dates → mark one done and confirm status advances → confirm bed-card "Next" line matches → reload to confirm persistence.
+  - **Decide whether WB-ARCH-0003 moves to DONE** after smoke test, or stays IN_PROGRESS for foundation success-criteria items not yet exercised (e.g., end-to-end "set up garden + 3 beds + 8 plantings" walkthrough from foundation §12).
+- Next actions:
+  - Open PR for `wb-arch-0003-bundle-budget-revision` branch (bundles the spec budget revision from end of Session 10 with Plan 3 work). PR title: `WB-ARCH-0003: Plan 3 (Agenda) + budget revision`.
+  - After merge, brainstorm any follow-up tracks the user wants (post-v1 items in foundation §11 — photos in journal, weather integration, mobile agenda view, etc.).
+
+---
+
 ### 2026-05-28 - Session 10 (Plan 2 rework + finish)
 
 - Markers: `WB-ARCH-0003` (Plan 2 of 3 — Library + Beds; reconciliation + completion)

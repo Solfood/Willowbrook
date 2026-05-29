@@ -6,7 +6,7 @@
 
 | ID | Title | Status | Priority | Parent refs | Updated |
 |---|---|---|---|---|---|
-| WB-ARCH-0003 | Willowbrook Almanac — bed-centric rewrite | IN_PROGRESS | high | [spec](superpowers/specs/2026-05-27-willowbrook-almanac-design.md) | 2026-05-28 (Plan 2 shipped) |
+| WB-ARCH-0003 | Willowbrook Almanac — bed-centric rewrite | IN_PROGRESS | high | [spec](superpowers/specs/2026-05-27-willowbrook-almanac-design.md) | 2026-05-29 (Plan 3 shipped — pending smoke test) |
 
 ## Completed
 
