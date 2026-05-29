@@ -5,6 +5,9 @@ import {
     addDays,
     daysBetween,
     computeTaskForPlanting,
+    computeAgenda,
+    AGENDA_WINDOW_DAYS,
+    AGENDA_OVERDUE_GRACE_DAYS,
 } from '../src/features/agenda/agenda.js';
 
 const TOMATO = {
@@ -128,4 +131,120 @@ test('transplanted but no datePlanted -> no task (insufficient data)', () => {
         plant: TOMATO, lastFrostDate: LAST_FROST, zone: '7a', year: 2026,
     });
     assert.equal(task, null);
+});
+
+const BED_WEST = { id: 'bed-w', name: 'Backyard West', widthFt: 4, lengthFt: 8 };
+const BED_STRIP = { id: 'bed-s', name: 'Salad Strip', widthFt: 2, lengthFt: 6 };
+const PLANTS_BY_ID = { tomato: TOMATO, carrot: CARROT };
+
+test('computeAgenda returns three buckets; task carries plantId + bedName', () => {
+    const today = '2026-04-22';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST, BED_STRIP],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.thisWeek.length, 1);
+    assert.equal(r.thisWeek[0].action, 'transplant');
+    assert.equal(r.thisWeek[0].plantName, 'Tomato');
+    assert.equal(r.thisWeek[0].plantId, 'tomato');
+    assert.equal(r.thisWeek[0].bedName, 'Backyard West');
+    assert.equal(r.thisWeek[0].id, 'task-pl-tom-transplant');
+});
+
+test('computeAgenda puts a task dated 3 days ago in overdue', () => {
+    const today = '2026-04-25';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.overdue.length, 1);
+    assert.equal(r.thisWeek.length, 0);
+});
+
+test('computeAgenda drops a task older than the overdue grace window', () => {
+    const today = '2026-04-30';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.overdue.length, 0);
+    assert.equal(r.thisWeek.length, 0);
+    assert.equal(r.nextWeek.length, 0);
+});
+
+test('computeAgenda puts a task 8 days from today in nextWeek', () => {
+    const today = '2026-04-14';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.nextWeek.length, 1);
+});
+
+test('computeAgenda drops a task more than windowDays out', () => {
+    const today = '2026-04-01';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.overdue.length + r.thisWeek.length + r.nextWeek.length, 0);
+});
+
+test('computeAgenda sorts within bucket by date asc, then plantingId asc', () => {
+    const today = '2026-04-22';
+    const plantings = [
+        { id: 'pl-b', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+        { id: 'pl-a', bedId: 'bed-w', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.thisWeek.length, 2);
+    assert.equal(r.thisWeek[0].plantingId, 'pl-a');
+    assert.equal(r.thisWeek[1].plantingId, 'pl-b');
+});
+
+test('computeAgenda handles missing bed gracefully ("(no bed)")', () => {
+    const today = '2026-04-22';
+    const plantings = [
+        { id: 'pl-tom', bedId: 'bed-ghost', plantId: 'tomato', status: 'sown_indoors', datePlanted: '2026-03-05', quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.thisWeek[0].bedName, '(no bed)');
+});
+
+test('computeAgenda skips plantings whose plant cannot be resolved', () => {
+    const today = '2026-04-22';
+    const plantings = [
+        { id: 'pl-ghost', bedId: 'bed-w', plantId: 'ghost-plant', status: 'planned', datePlanted: null, quantity: 1, notes: '' },
+    ];
+    const r = computeAgenda({
+        plantings, plantsById: PLANTS_BY_ID, beds: [BED_WEST],
+        zone: '7a', lastFrostDate: LAST_FROST, today,
+    });
+    assert.equal(r.overdue.length + r.thisWeek.length + r.nextWeek.length, 0);
+});
+
+test('AGENDA_WINDOW_DAYS and AGENDA_OVERDUE_GRACE_DAYS exported', () => {
+    assert.equal(AGENDA_WINDOW_DAYS, 14);
+    assert.equal(AGENDA_OVERDUE_GRACE_DAYS, 7);
 });

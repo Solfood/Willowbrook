@@ -87,3 +87,56 @@ export function computeTaskForPlanting({ planting, plant, lastFrostDate, zone, y
 
     return null;
 }
+
+export function computeAgenda({
+    plantings,
+    plantsById,
+    beds,
+    zone,
+    lastFrostDate,
+    today = isoToday(),
+    windowDays = AGENDA_WINDOW_DAYS,
+}) {
+    const bedsById = {};
+    for (const b of beds || []) bedsById[b.id] = b;
+    const year = parseInt(today.slice(0, 4), 10);
+
+    const tasks = [];
+    for (const planting of plantings || []) {
+        const plant = plantsById[planting.plantId];
+        if (!plant) continue;
+        const t = computeTaskForPlanting({ planting, plant, lastFrostDate, zone, year });
+        if (!t) continue;
+        tasks.push({
+            id: `task-${planting.id}-${t.action}`,
+            date: t.date,
+            action: t.action,
+            nextStatus: t.nextStatus,
+            reason: t.reason,
+            plantingId: planting.id,
+            plantId: plant.id,
+            plantName: plant.name,
+            bedName: bedsById[planting.bedId]?.name ?? '(no bed)',
+        });
+    }
+
+    const overdue = [];
+    const thisWeek = [];
+    const nextWeek = [];
+    for (const t of tasks) {
+        const delta = daysBetween(today, t.date);
+        if (delta < -AGENDA_OVERDUE_GRACE_DAYS) continue;
+        if (delta > windowDays) continue;
+        if (delta < 0) overdue.push(t);
+        else if (delta <= 6) thisWeek.push(t);
+        else nextWeek.push(t);
+    }
+
+    const byDateThenId = (a, b) =>
+        a.date.localeCompare(b.date) || a.plantingId.localeCompare(b.plantingId);
+    overdue.sort(byDateThenId);
+    thisWeek.sort(byDateThenId);
+    nextWeek.sort(byDateThenId);
+
+    return { overdue, thisWeek, nextWeek };
+}
