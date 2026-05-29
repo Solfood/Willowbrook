@@ -16,18 +16,33 @@ Append-only continuity log.
   - **T4** `src/features/agenda/AgendaView.jsx` rewritten: three sections with colored pill headers, plant icon + `plant — bed` headline + italic reason + formatted date + Mark done button dispatching `MARK_TASK_DONE`. Empty states for "no plantings yet" (CTA to Beds) and "nothing scheduled in window". `AlmanacShell` passes `onSwitchView` so the empty-state CTA works.
   - **T5** `src/features/beds/BedsView.jsx`: each card now reads `Next: <Action> <Plant> — <ShortDate>`, indexed from `computeAgenda` (overdue-first via concat); falls back to `Next: (nothing scheduled)`.
 - Verification: `npm test` 80/80 pass (up from 56 — added 24 agenda tests). `npm run lint` clean. `npm run build` produces 276.29 kB JS / 80.64 kB gzipped — comfortably under the revised 300 kB / 100 kB budget from Plan 2 spec §9.
+- Engineering Fundamentals check (per CLAUDE.md Gate 3 / handoff ritual; status remains IN_PROGRESS pending user smoke test, not flipped to DONE):
+  - [x] **Objective and success criteria defined before building** — Plan 3 spec §11 lists five concrete acceptance criteria; plan tasks map 1:1.
+  - [x] **Inputs validated at all trust boundaries** — `agenda.js` is pure with no I/O; the only inputs are in-memory plan state already validated by `planSchema.validatePlanFile`. UI dispatches go through the existing reducer's typed actions.
+  - [x] **Error paths implemented and tested, not just happy path** — agenda.test.js covers terminal-state plantings (no task), missing plant (skip), missing bed (fallback name), missing datePlanted (no task), out-of-window dates (drop), and the overdue grace cutoff.
+  - [x] **Names convey intent; control flow is easy to follow** — `computeTaskForPlanting`, `computeAgenda`, `AGENDA_WINDOW_DAYS`, `AGENDA_OVERDUE_GRACE_DAYS`, `nextTaskByBed`. Each branch in the rule table is one short conditional.
+  - [x] **Tests appropriate for risk class** — low risk (no auth, no infra, no data migration); pure modules get full `node:test` coverage (24 cases); React glue doesn't get component tests per foundation §10 test-budget policy.
+  - [x] **Rollback path exists** — change is additive to local state only; `git revert` of the 8 commits restores prior behavior; no migration, no schema change, no external state.
+  - [x] **Logs/metrics sufficient for diagnosis** — pure compute path is deterministic and testable; React errors continue to surface through the existing error boundary kept from Plan 1. No production telemetry needed for a static GH-Pages SPA.
 - Decisions made:
   - **Task shape carries `plantId`** (not just `plantName`) so the AgendaView icon lookup is `plantsById[task.plantId].icon` instead of a name search. Documented inline in the plan's T4 note before deciding; no spec amendment needed because §4.1 lists Task's public fields as illustrative.
   - **Transplant date overwrites `datePlanted`**: acknowledged simplification (spec §8.2). A future schema bump could split into `dateSown` vs `dateTransplanted`.
   - **No reducer changes** — `MARK_TASK_DONE` was already wired in Plan 1.
   - **Bundle budget**: Plan 3 added ~7 kB JS / ~2 kB gzipped, well inside the revised budget. No code splitting needed.
+- PR open: **#6** — https://github.com/Solfood/Willowbrook/pull/6 — bundles the Plan 2 spec budget revision (`199f298`) and all Plan 3 commits onto `wb-arch-0003-bundle-budget-revision`.
+- Push gotcha: macOS `osxkeychain` credential helper hung on `git push` in this automation context (the previous session's push went via Web UI). One-shot workaround used: `git -c credential.helper= -c credential.helper='!gh auth git-credential' push`. No persistent git config change made. Future sessions: if `git push` hangs, this same one-shot incantation works without modifying `~/.gitconfig`.
 - Open issues / blockers: None.
 - Pending user action on return:
+  - **Review + merge PR #6** (or request changes).
   - **Manual smoke test** of Plan 2 + Plan 3 together (deferred from end of Session 10 when user stepped away). Suggested flow: setup garden → add bed → add 2-3 plantings in mixed statuses → confirm Agenda surfaces tasks with correct dates → mark one done and confirm status advances → confirm bed-card "Next" line matches → reload to confirm persistence.
   - **Decide whether WB-ARCH-0003 moves to DONE** after smoke test, or stays IN_PROGRESS for foundation success-criteria items not yet exercised (e.g., end-to-end "set up garden + 3 beds + 8 plantings" walkthrough from foundation §12).
 - Next actions:
-  - Open PR for `wb-arch-0003-bundle-budget-revision` branch (bundles the spec budget revision from end of Session 10 with Plan 3 work). PR title: `WB-ARCH-0003: Plan 3 (Agenda) + budget revision`.
-  - After merge, brainstorm any follow-up tracks the user wants (post-v1 items in foundation §11 — photos in journal, weather integration, mobile agenda view, etc.).
+  - After merge + smoke test, brainstorm any follow-up tracks the user wants (post-v1 items in foundation §11 — photos in journal, weather integration, mobile agenda view, succession scheduling, "could plant now" suggestions toggle).
+- References:
+  - Plan 3 design spec: `docs/superpowers/specs/2026-05-29-willowbrook-almanac-plan-3-design.md`
+  - Plan 3 implementation plan: `docs/superpowers/plans/2026-05-29-almanac-plan-3-agenda.md`
+  - PR #6: https://github.com/Solfood/Willowbrook/pull/6
+  - Foundation spec §5 (Agenda sketch this session pinned down): `docs/superpowers/specs/2026-05-27-willowbrook-almanac-design.md`
 
 ---
 
