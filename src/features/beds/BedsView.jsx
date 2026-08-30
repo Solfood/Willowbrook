@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Sprout, X } from 'lucide-react';
 import { actions } from '../plan/planReducer.js';
 import { getPlantsById } from '../catalog/catalog.js';
+import { computeAgenda } from '../agenda/agenda.js';
 
 function summarizePlantings(plantings, plantsById) {
     if (plantings.length === 0) return 'No plantings yet';
@@ -16,9 +17,45 @@ function summarizePlantings(plantings, plantsById) {
     return extra > 0 ? `${shown.join(' · ')} · +${extra} more` : shown.join(' · ');
 }
 
+const ACTION_LABELS = {
+    start_indoors: 'Start indoors',
+    direct_sow: 'Direct-sow',
+    transplant: 'Transplant',
+    harvest: 'Harvest',
+};
+
+const SHORT_DATE_FMT = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+});
+function formatDateShort(iso) {
+    const [y, m, d] = iso.split('-').map((s) => parseInt(s, 10));
+    return SHORT_DATE_FMT.format(new Date(y, m - 1, d));
+}
+
+function buildNextTaskByBed(plan, plantsById) {
+    const { overdue, thisWeek, nextWeek } = computeAgenda({
+        plantings: plan.plantings,
+        plantsById,
+        beds: plan.beds,
+        zone: plan.garden.zone,
+        lastFrostDate: plan.garden.lastFrostDate,
+    });
+    const all = [...overdue, ...thisWeek, ...nextWeek];
+    const plantingBedById = {};
+    for (const p of plan.plantings) plantingBedById[p.id] = p.bedId;
+    const map = {};
+    for (const t of all) {
+        const bedId = plantingBedById[t.plantingId];
+        if (!bedId) continue;
+        if (!map[bedId]) map[bedId] = t;
+    }
+    return map;
+}
+
 export default function BedsView({ plan, dispatch, onSelectBed }) {
     const [showAdd, setShowAdd] = useState(false);
     const plantsById = getPlantsById(plan);
+    const nextTaskByBed = buildNextTaskByBed(plan, plantsById);
 
     const activeByBed = plan.beds.map((bed) => ({
         bed,
@@ -51,14 +88,22 @@ export default function BedsView({ plan, dispatch, onSelectBed }) {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {activeByBed.map(({ bed, active }) => (
-                    <button key={bed.id} onClick={() => onSelectBed(bed.id)}
-                        className="text-left border rounded p-4 bg-white hover:shadow-sm">
-                        <div className="font-medium">{bed.name}</div>
-                        <div className="text-xs text-gray-600">{bed.widthFt}′ × {bed.lengthFt}′</div>
-                        <div className="text-sm mt-2">{summarizePlantings(active, plantsById)}</div>
-                    </button>
-                ))}
+                {activeByBed.map(({ bed, active }) => {
+                    const next = nextTaskByBed[bed.id];
+                    return (
+                        <button key={bed.id} onClick={() => onSelectBed(bed.id)}
+                            className="text-left border rounded p-4 bg-white hover:shadow-sm">
+                            <div className="font-medium">{bed.name}</div>
+                            <div className="text-xs text-gray-600">{bed.widthFt}′ × {bed.lengthFt}′</div>
+                            <div className="text-sm mt-2">{summarizePlantings(active, plantsById)}</div>
+                            <div className="text-xs text-gray-500 mt-1">
+                                {next
+                                    ? `Next: ${ACTION_LABELS[next.action] ?? next.action} ${next.plantName} — ${formatDateShort(next.date)}`
+                                    : 'Next: (nothing scheduled)'}
+                            </div>
+                        </button>
+                    );
+                })}
             </div>
 
             {showAdd && <AddBedModal dispatch={dispatch} onClose={() => setShowAdd(false)} />}

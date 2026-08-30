@@ -79,7 +79,7 @@ export default function AlmanacShell({ initialPlan, onNewGarden }) {
                 </nav>
 
                 <main className="flex-1 overflow-auto bg-white">
-                    {view === 'agenda' && <AgendaView plan={state.plan} dispatch={dispatch} />}
+                    {view === 'agenda' && <AgendaView plan={state.plan} dispatch={dispatch} onSwitchView={setView} />}
                     {view === 'beds' && !selectedBedId && (
                         <BedsView plan={state.plan} dispatch={dispatch} onSelectBed={setSelectedBedId} />
                     )}

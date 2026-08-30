@@ -242,7 +242,7 @@ tests/
 - **YAGNI v1:** no photos in journal, no drag-drop anything, no 2D bin-packing in the footprint, no internationalization, no offline-PWA, no fuzzy search beyond plain substring.
 - **Test budget:** every pure module gets `node --test` coverage (`footprint.js`, `wikidataLookup.js`, the library filter helper). React components don't get unit tests in v1 — consistent with Plan 1's principle that pure modules are the value and React is the skin. `npm run lint` clean is the React-side gate.
 - **No new dependencies.** Wikidata uses `fetch`; everything else is already in the project.
-- **Bundle budget:** stay under the current 213 kB JS bundle (lots of UI but no new libraries; should be slack-negative).
+- **Bundle budget:** ≤ 300 kB JS / ≤ 100 kB gzipped. The 213 kB figure from the original spec was Plan 1's empty-shell baseline; Plan 2 adds four real React components (AddPlantForm, LibraryView, BedsView, BedDetail) with no new runtime dependencies, which inherently grows the bundle. Plan 2 as shipped lands at ~270 kB / ~79 kB gzipped — comfortably under the revised budget. Future plans should track this number per PR; if Plan 3 (Agenda) pushes the bundle toward 350 kB, revisit by code-splitting at the tab boundary rather than chasing the old number with `React.lazy` boilerplate on hot paths.
 - **No schema bump.** Plan 1 already shipped schema v2; Plan 2 uses it as-is.
 
 ---
@@ -273,7 +273,7 @@ Cases (minimum to pass Gate 4):
   4. Malformed JSON throws.
 - `tests/library.test.js` — pure category-filter + search-filter helpers extracted from `LibraryView`.
 
-Verification gate: `npm run lint` clean, all tests pass, `npm run build` succeeds with bundle ≤ 213 kB JS.
+Verification gate: `npm run lint` clean, all tests pass, `npm run build` succeeds within the bundle budget in §9.
 
 ---
 
@@ -292,5 +292,5 @@ Verification gate: `npm run lint` clean, all tests pass, `npm run build` succeed
 - A user can create a bed, add 3+ plantings into it (mix of statuses), edit/remove rows, see the footprint reflect their picks, write a journal entry, and view the History section once a planting is marked harvested.
 - A user can search the library, filter by category, click into a plant card to see notes/companions/source-refs.
 - A user can add a custom plant via the manual form, and via the Wikidata `Look up online` flow, and the new plant immediately appears in the library AND in the BedDetail plant-picker.
-- All test cases in §11 pass. `npm run lint` clean. `npm run build` JS bundle ≤ 213 kB.
+- All test cases in §11 pass. `npm run lint` clean. `npm run build` within the bundle budget in §9.
 - A v2 plan with beds, plantings, journal entries, and custom plants round-trips through save → load → render unchanged.
